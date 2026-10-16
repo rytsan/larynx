@@ -1,2 +1,4 @@
 build/
 *.bak
+golden/8_vozes/**/*.wav
+*.part

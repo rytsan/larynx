@@ -206,7 +206,8 @@ larynx/
 │   ├── bench_plugin/                # RTF/latência headless
 │   └── abx_player/                  # CLI A/X/B cego → CSV
 ├── golden/                          # congelado no dia 1 — NUNCA treinar
-│   ├── 8_vozes/*.wav + SHA256SUMS
+│   ├── manifest.csv                 # origem de cada clipe (GTSinger, revisão fixada)
+│   ├── 8_vozes/<voz>/{cantado,tecnica,fala}.wav + SHA256SUMS   # wavs fora do git; `python3 ml/data/fetch_golden.py`
 │   └── protocolo_abx.md
 ├── docs/
 │   ├── planner.md (este documento)
@@ -265,7 +266,7 @@ Objetivo: o plugin existe, abre no DAW, dá bypass perfeito, tem a cara final da
 **Gate**
 - [ ] Carrega no Reaper e Cubase (CLAP + VST3)
 - [ ] Bypass bit-perfect: diff entre out e in atrasado pela latência = 0 (teste automático)
-- [ ] Golden set congelado (SHA256SUMS commitado) antes de qualquer outra coisa — P2/P3 já dependem dele
+- [x] Golden set congelado (SHA256SUMS + manifest commitados) antes de qualquer outra coisa — P2/P3 já dependem dele. Reconstruir/verificar: `python3 ml/data/fetch_golden.py`
 - [ ] Automação de mix gravada e reproduzida sem zipper
 - [ ] Sessão 1 h sem glitch; gráfico 60 fps estável
 - [ ] UI aprovada por você (print salvo em docs/)
@@ -339,13 +340,14 @@ Objetivo: o modelo da rede, com dados suficientes e avaliação honesta.
 | JVS-MuSiC (24 kHz) | canto + F0 | 5 h |
 | PTDB-TUG (48 kHz) | referência fonte glotal (EGG) | 1 h |
 | ACE-Step a cappella | "cantores virtuais" diversos | 30–60 min gerados |
-| Suas gravações | **só** perfis de morph (P8) e golden — nunca treino/val | 1–2 h |
-| Golden set | teste — nunca treino | 8 vozes × 3 clipes |
+| GTSinger (48 kHz/24-bit, CC BY-NC-SA 4.0) | **corpus inteiro fora do treino**: 8 cantores = golden; 12 restantes = vozes novas (P6 A/B) e perfis de morph (P8) | 20 cantores |
+| Golden set | teste — nunca treino | 8 vozes × 3 clipes (cantado, técnica, fala) |
+| Suas gravações (opcional, futuro) | perfis de morph extras; nunca treino/val | — |
 
 Regras de fonte:
 - **Banda efetiva por clipe.** Fontes de 24 kHz não têm nada acima de 12 kHz; resamplear para 48k não cria agudo. Se entrarem como alvo sem máscara, a rede aprende a apagar H41–80. Cada clipe guarda `bw_hz` (sample rate original ou rolloff medido, o menor) no manifest; o loss ignora harmônicos com n·f0 > bw_hz.
 - **MIR-1K removido.** 16 kHz sem alvo rico não forma par; a mask de lowpass (§9.3) já simula canal limitado.
-- **Sua voz fora do treino.** Estava como "âncora" no treino e também no golden — vazamento que viola o split por cantor e infla o NFR7.
+- **Golden vem de corpus fora do treino.** Sem gravações próprias, o golden sai do GTSinger, e o GTSinger inteiro fica fora do treino (não só os 8 cantores do golden) — o teste de split vira trivial. Atribuição em `ml/data/credits.md`.
 - Conferir sample rate real de cada corpus no download (os valores acima são os esperados) e anotar em `ml/data/credits.md`.
 
 *(Roteiro de gravações: vogais sustentadas × extensão × dinâmica, escalas a cappella, sibilantes, fala)*
@@ -378,7 +380,7 @@ Nota sobre a mask "truncar em H40": no plugin real a rede também só recebe H1.
   - Máscara: zera termos com n > nValid, n·f0 > bw_hz, frames unvoiced (só noise conta), e alvo no piso −100 dB (senão o piso domina o MSE)
 - Loss auxiliar (peso 0.1): MSE nos picos F1/F2 extraídos do envelope predito vs. target (Praat offline no dataset)
 - Data augmentation de condicionamento: jitter uniforme ±15 cents no log_f0, dropout aleatório do voiced flag (5% dos frames voiced → unvoiced) — simula erros do detector NSDF em produção. Ganho de entrada aleatório ±12 dB por clipe (robustez a trim/nível, R15).
-- Split por cantor; 80/10/10; golden set e suas gravações fora de tudo (só inferência). Checar no manifest: nenhum speaker_id aparece em mais de um split nem no golden (teste automático)
+- Split por cantor; 80/10/10; golden set, GTSinger inteiro e suas gravações fora de tudo (só inferência). Checar no manifest: nenhum speaker_id aparece em mais de um split nem no golden (teste automático)
 - AdamW, lr 3e-4, cosine, batch 64, AMP fp16
 - Early stop no pior LSD por cantor no validation set (minimax), com restrição de que nenhum cantor tenha LSD > 2.0 dB.
 - 2080Ti: 1–2 h por corrida → varrer hyperparâmetros (dilations, n_blocos, dropout)
@@ -414,7 +416,7 @@ Objetivo: o DLSS vocal funcional, em tempo real, dentro do plugin.
 **Gate**
 - [ ] RTF total < 0.2 sem GPU; latência total ≤ 25 ms
 - [ ] Sessão 1 h sem dropout; automação de prior durante neural ativa sem glitch
-- [ ] Comparação A/B no DAW: DSP mode vs. Live mode audível e positiva em vozes novas (não-golden, não-treino)
+- [ ] Comparação A/B no DAW: DSP mode vs. Live mode audível e positiva em vozes novas (os 12 cantores do GTSinger fora do golden)
 
 ## 11. PASSO 7 — Modo Studio (M3, variante 2)
 **Tarefas**
@@ -433,7 +435,7 @@ Objetivo: o instrumento experimental.
 **Tarefas**
 - Sub: banco aditivo injeta sub-oitavas musicais em f0/2 e f0/4 com envolvente derivada de H1–H4 (ganho sub); fase sintética coerente
 - Breath: ganho no canal de ruído (bandas ERB) com detector de vogal aberta (mais sopro nas abertas — realismo)
-- Morph (v2): Perfis extraídos: média geométrica (em dB) dos envelopes harmônicos por combinação vowel×pitch_bin (bins de 2 semitons) das gravações pessoais. Espaço de morphing: PCA dos envelopes (primeiros 8 componentes), interpolação esférica (slerp) entre perfis no espaço PCA. Formato: .data binário com header descrevendo dimensões. Escalabilidade: novos perfis podem ser adicionados por qualquer usuário gravando o roteiro de 15 min (§9.1).
+- Morph (v2): Perfis extraídos: média geométrica (em dB) dos envelopes harmônicos por combinação vowel×pitch_bin (bins de 2 semitons) dos cantores do GTSinger fora do golden (ou gravações próprias, se surgirem). Espaço de morphing: PCA dos envelopes (primeiros 8 componentes), interpolação esférica (slerp) entre perfis no espaço PCA. Formato: .data binário com header descrevendo dimensões. Escalabilidade: novos perfis podem ser adicionados por qualquer usuário gravando o roteiro de 15 min (§9.1).
 - Editor de envelope no gráfico: arrastar barras H1–80; overlay do neural em trilha fantasma; duplo-clique = reset
 - Presets de fábrica: Studio Restore · Telefone→Estúdio · Growl suave · Sopro etéreo · Duplo virtual (sub+detrune leve de fase, sem pitch) · Pass Through
 - Modo Studio + editor = render "offline" com PDC
@@ -445,7 +447,7 @@ Objetivo: o instrumento experimental.
 
 ## 13. PASSO 9 — Fechamento de qualidade
 **Tarefas**
-- Golden set (congelado no P1 — aqui só auditar SHA256, não recriar): 8 vozes (3 suas + 5 externas: grave, aguda feminina, jovem/criança, rouca, falsete), protocolo em `golden/protocolo_abx.md`
+- Golden set (congelado no P1 — aqui só auditar SHA256 com `fetch_golden.py`, não recriar): 8 cantores do GTSinger — 2 baixos (IT, ES), soprano (FR), soprano soprosa (KO), alto (RU), alto soprosa (EN), tenor com falsete (EN), tenor faríngeo (DE). Lacuna conhecida: sem voz infantil e sem rouquidão patológica (opcional: vogais sustentadas da Saarbrücken Voice Database). Protocolo em `golden/protocolo_abx.md`
 - ABX com 3+ ouvintes externos: NFR7 (acerto ≤ 65% Studio; ≤ 70% Live)
 - Taxas não suportadas (88.2/96k): bypass atrasado + aviso, sem crash
 - Edge cases: voz fora da distribuição → Prior baixo degrada graciosamente (validar); DC offset; clipping de entrada; sample rate 44.1k; silêncio; unvoiced longo
@@ -499,7 +501,7 @@ Knobs: LookAndFeel custom — arco de LED, marcador de valor, tooltip com valor 
 | R8 | Feature shift Python↔C++ | Diff extração > 0.01 dB no gate de equivalência | Forçar pybind11 único; se impossível, treinar com noise augmentation nos harmônicos (±0.5 dB uniforme) |
 | R9 | F0 atrasado em relação ao STFT (mediana causal + centro da janela 2048) | em vibrato, picos de H20+ perdidos; RF11/NFR6 falham | F0 só para região de busca, freq. real de cada pico por refino local (§2.3); teste de vibrato no P2 |
 | R10 | Fontes de 24 kHz ensinam a rede a apagar agudos | H41–80 previstos sempre baixos; LSD H41+ ruim | `bw_hz` por clipe no manifest + máscara no loss (§9.1) |
-| R11 | Vazamento de cantor (sua voz em treino e golden) | golden muito melhor que vozes novas | sua voz fora do treino; teste automático de split |
+| R11 | Vazamento de cantor entre treino e golden | golden muito melhor que vozes novas | golden de corpus inteiro fora do treino (GTSinger); teste automático de split |
 | R12 | Shards gerados com core C++ desatualizado | extração no plugin ≠ treino após mudança no P3/P4 | hash do core no manifest; regenerar shards ao mudar |
 | R13 | Troca de modelo/latência em playback | pop, desalinhamento, alocação no audio thread | modelos pré-carregados, índice atômico, rampa de prior; PDC novo só após stop/start |
 | R14 | Gate P5 parado esperando o C++ | trilha ML "paralela" sem features para treinar | P5a (dados, QC, baseline, treino com features WORLD só para depurar o pipeline) já; P5b (shards reais) após P3 |

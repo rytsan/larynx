@@ -1,0 +1,25 @@
+file,voice,singer,kind,source,channels,sample_rate,bits,seconds
+grave_baixo_it/cantado.wav,grave_baixo_it,IT-Bass-1,cantado,Italian/IT-Bass-1/Vibrato/Con ardore/Control_Group/0000.wav,1,48000,24,21.48
+grave_baixo_it/tecnica.wav,grave_baixo_it,IT-Bass-1,tecnica,Italian/IT-Bass-1/Vibrato/Con ardore/Vibrato_Group/0000.wav,1,48000,24,22.58
+grave_baixo_it/fala.wav,grave_baixo_it,IT-Bass-1,fala,Italian/IT-Bass-1/Vibrato/Con ardore/Paired_Speech_Group/0000.wav,1,48000,24,11.19
+grave_baixo_es/cantado.wav,grave_baixo_es,ES-Bass-1,cantado,Spanish/ES-Bass-1/Breathy/A Gritos de Esperanza/Control_Group/0000.wav,1,48000,24,7.92
+grave_baixo_es/tecnica.wav,grave_baixo_es,ES-Bass-1,tecnica,Spanish/ES-Bass-1/Breathy/A Gritos de Esperanza/Breathy_Group/0000.wav,1,48000,24,7.41
+grave_baixo_es/fala.wav,grave_baixo_es,ES-Bass-1,fala,Spanish/ES-Bass-1/Breathy/A Gritos de Esperanza/Paired_Speech_Group/0000.wav,1,48000,24,3.62
+aguda_soprano_fr/cantado.wav,aguda_soprano_fr,FR-Soprano-1,cantado,French/FR-Soprano-1/Vibrato/1996/Control_Group/0000.wav,1,48000,24,11.05
+aguda_soprano_fr/tecnica.wav,aguda_soprano_fr,FR-Soprano-1,tecnica,French/FR-Soprano-1/Vibrato/1996/Vibrato_Group/0000.wav,1,48000,24,10.99
+aguda_soprano_fr/fala.wav,aguda_soprano_fr,FR-Soprano-1,fala,French/FR-Soprano-1/Vibrato/1996/Paired_Speech_Group/0000.wav,1,48000,24,3.28
+soprosa_soprano_ko/cantado.wav,soprosa_soprano_ko,KO-Soprano-1,cantado,Korean/KO-Soprano-1/Breathy/all about you/Control_Group/0000.wav,1,48000,24,8.45
+soprosa_soprano_ko/tecnica.wav,soprosa_soprano_ko,KO-Soprano-1,tecnica,Korean/KO-Soprano-1/Breathy/all about you/Breathy_Group/0000.wav,1,48000,24,8.06
+soprosa_soprano_ko/fala.wav,soprosa_soprano_ko,KO-Soprano-1,fala,Korean/KO-Soprano-1/Breathy/all about you/Paired_Speech_Group/0000.wav,1,48000,24,5.51
+alto_ru/cantado.wav,alto_ru,RU-Alto-1,cantado,Russian/RU-Alto-1/Glissando/Байкал/Control_Group/0000.wav,1,48000,24,7.01
+alto_ru/tecnica.wav,alto_ru,RU-Alto-1,tecnica,Russian/RU-Alto-1/Glissando/Байкал/Glissando_Group/0000.wav,1,48000,24,9.01
+alto_ru/fala.wav,alto_ru,RU-Alto-1,fala,Russian/RU-Alto-1/Glissando/Байкал/Paired_Speech_Group/0000.wav,1,48000,24,2.86
+soprosa_alto_en/cantado.wav,soprosa_alto_en,EN-Alto-1,cantado,English/EN-Alto-1/Breathy/all is found/Control_Group/0000.wav,1,48000,24,8.96
+soprosa_alto_en/tecnica.wav,soprosa_alto_en,EN-Alto-1,tecnica,English/EN-Alto-1/Breathy/all is found/Breathy_Group/0000.wav,1,48000,24,7.32
+soprosa_alto_en/fala.wav,soprosa_alto_en,EN-Alto-1,fala,English/EN-Alto-1/Breathy/all is found/Paired_Speech_Group/0000.wav,1,48000,24,3.68
+falsete_tenor_en/cantado.wav,falsete_tenor_en,EN-Tenor-1,cantado,English/EN-Tenor-1/Mixed_Voice_and_Falsetto/Always Remember Us This Way/Control_Group/0000.wav,1,48000,24,6.86
+falsete_tenor_en/tecnica.wav,falsete_tenor_en,EN-Tenor-1,tecnica,English/EN-Tenor-1/Mixed_Voice_and_Falsetto/Always Remember Us This Way/Falsetto_Group/0000.wav,1,48000,24,6.55
+falsete_tenor_en/fala.wav,falsete_tenor_en,EN-Tenor-1,fala,English/EN-Tenor-1/Mixed_Voice_and_Falsetto/Always Remember Us This Way/Paired_Speech_Group/0000.wav,1,48000,24,2.94
+tenor_faringeo_de/cantado.wav,tenor_faringeo_de,DE-Tenor-1,cantado,German/DE-Tenor-1/Pharyngeal/Adelaide/Control_Group/0000.wav,1,48000,24,10.10
+tenor_faringeo_de/tecnica.wav,tenor_faringeo_de,DE-Tenor-1,tecnica,German/DE-Tenor-1/Pharyngeal/Adelaide/Pharyngeal_Group/0000.wav,1,48000,24,5.83
+tenor_faringeo_de/fala.wav,tenor_faringeo_de,DE-Tenor-1,fala,German/DE-Tenor-1/Pharyngeal/Adelaide/Paired_Speech_Group/0000.wav,1,48000,24,4.74
