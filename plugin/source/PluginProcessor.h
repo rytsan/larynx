@@ -18,6 +18,8 @@ public:
     void prepareToPlay(double sampleRate, int maxBlockSize) override;
     void releaseResources() override {}
     bool isBusesLayoutSupported(const BusesLayout&) const override;
+    using AudioProcessor::processBlock;
+    using AudioProcessor::processBlockBypassed;
     void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
     void processBlockBypassed(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
     juce::AudioProcessorParameter* getBypassParameter() const override;
