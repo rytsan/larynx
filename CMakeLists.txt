@@ -18,6 +18,7 @@ FetchContent_Declare(clap_juce_extensions
 FetchContent_MakeAvailable(juce clap_juce_extensions)
 
 add_subdirectory(plugin)
+add_subdirectory(tools/bench_plugin)
 
 option(LARYNX_TESTS "Build tests" ON)
 if(LARYNX_TESTS)

@@ -1,3 +1,9 @@
+# core/: pure DSP, no JUCE. Shared by the plugin, tests and tools/bench_plugin.
+add_library(larynx_core STATIC source/core/analyzer.cpp)
+target_include_directories(larynx_core PUBLIC source)
+target_compile_features(larynx_core PUBLIC cxx_std_20)
+target_link_libraries(larynx_core PRIVATE juce::juce_recommended_warning_flags juce::juce_recommended_config_flags)
+
 juce_add_plugin(Larynx
     COMPANY_NAME "Ricardo"
     PLUGIN_MANUFACTURER_CODE Rcdo
@@ -28,6 +34,7 @@ target_compile_definitions(Larynx PUBLIC
 
 target_link_libraries(Larynx
     PRIVATE
+        larynx_core
         juce::juce_audio_utils
         juce::juce_opengl
     PUBLIC

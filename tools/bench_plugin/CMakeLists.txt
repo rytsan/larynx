@@ -1,0 +1,2 @@
+add_executable(larynx_analyze analyze.cpp)
+target_link_libraries(larynx_analyze PRIVATE larynx_core juce::juce_recommended_config_flags)

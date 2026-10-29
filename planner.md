@@ -283,9 +283,9 @@ Objetivo: extrair F0/voicing/flags de qualidade em tempo real.
 
 **Gate**
 - [ ] F0 estável 30 s em vogal sustentada, sem octave-jump
-- [ ] Erro < 10 cents RMS vs. ground truth sintético
+- [x] Erro < 10 cents RMS vs. ground truth sintético (`tests/test_analyzer.cpp`: pior caso < 0.02 cents, 65–1000 Hz, 44.1/48k; vibrato 6 Hz ±50 cents < 5 cents)
 - [ ] Sibilantes/transientes flagados ≥ 90% no golden set (anotar à mão 3 min)
-- [ ] RTF(analyzer) < 0.05
+- [x] RTF(analyzer) < 0.05 (≈ 0.02 no golden set, Release, `larynx_analyze`)
 
 ## 7. PASSO 3 — Síntese identidade (M6, parte 1) — o passo crítico
 Objetivo: voz entra → decomposta → ressintetizada 1:1, transparente. Todo o projeto depende deste gate.

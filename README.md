@@ -11,7 +11,7 @@ Projeto pessoal, não comercial. O plano completo (requisitos, arquitetura, pass
 | Passo | Conteúdo | Estado |
 |---|---|---|
 | 1 | Casca do VST: build, parâmetros, bypass bit-perfect, UI estática | código pronto, testes passando; falta validar em DAW |
-| 2 | Analyzer (F0 / voicing) | — |
+| 2 | Analyzer (F0 / voicing) | código + testes sintéticos; falta validar flags e F0 em voz real |
 | 3 | Síntese identidade | — |
 | 4 | Controles harmônicos manuais | — |
 | 5 | Dados e treino | golden set congelado |
@@ -75,6 +75,14 @@ No WSL, o Standalone abre via WSLg com `DISPLAY=:0`.
 - roundtrip de estado de todos os parâmetros
 - `mode` não automatizável (muda latência)
 
+`tests/test_analyzer.cpp` cobre o analyzer: senóides 65–1000 Hz (< 10 cents), vibrato 6 Hz ±50 cents
+(< 15 cents), vogal sintética de 30 s com fundamental fraca (sem salto de oitava), silêncio/ruído/sibilante
+e transientes sobre vogal.
+
+```bash
+./build/tools/bench_plugin/larynx_analyze golden/8_vozes/alto_ru/cantado.wav > frames.csv   # RTF no stderr
+```
+
 ## Golden set
 
 Conjunto de teste congelado — **nunca** usado em treino. 8 cantores do [GTSinger](https://huggingface.co/datasets/AaronZ345/GTSinger)
@@ -96,9 +104,10 @@ plugin/
   source/
     PluginProcessor.*   parâmetros, latência, bypass, estado
     PluginEditor.*      UI 900×540 renderizada via OpenGL
-    core/               DSP puro, sem JUCE (testável headless)
+    core/               DSP puro, sem JUCE (testável headless): analyzer, fft, harm_frame
     ui/                 LookAndFeel do rack, gráfico de harmônicos
 tests/                  Catch2
+tools/bench_plugin/     larynx_analyze: analyzer sobre um WAV → CSV por frame + RTF
 ml/data/                pipeline de dados (fetch_golden.py, credits.md)
 golden/                 manifest + hashes do golden set
 planner.md              plano do projeto
