@@ -23,7 +23,21 @@ void Analyzer::prepare(double sampleRate) {
     acFft_.prepare(std::bit_ceil((size_t) (2 * win_))); // zero-padded: linear, not circular, correlation
     specFft_.prepare(std::bit_ceil((size_t) specWin_));
     ring_.assign((size_t) win_, 0.0f);
+    ringLp_.assign((size_t) win_, 0.0f);
     lin_.assign((size_t) win_, 0.0f);
+    linLp_.assign((size_t) win_, 0.0f);
+    {
+        // Bright voices with vibrato otherwise lose NSDF clarity: upper partials sweep hundreds of Hz
+        // inside the 43 ms window and decorrelate. 4 kHz also gave the fewest octave jumps on the
+        // golden set (2/3/4/6 kHz: 32/21/18/22; none: 21).
+        const float w0 = 2.0f * std::numbers::pi_v<float> * 4000.0f / (float) fs_;
+        const float alpha = std::sin(w0) / std::numbers::sqrt2_v<float>, cw = std::cos(w0); // sin(w0)/(2Q), Q = 1/√2
+        const float a0 = 1.0f + alpha;
+        b0_ = b2_ = (1.0f - cw) / 2.0f / a0;
+        b1_ = (1.0f - cw) / a0;
+        a1_ = -2.0f * cw / a0;
+        a2_ = (1.0f - alpha) / a0;
+    }
     nsdf_.assign((size_t) maxLag_ + 2, 0.0f);
     acBuf_.assign(acFft_.size(), {});
     specBuf_.assign(specFft_.size(), {});
@@ -35,6 +49,8 @@ void Analyzer::prepare(double sampleRate) {
 
 void Analyzer::reset() {
     std::fill(ring_.begin(), ring_.end(), 0.0f);
+    std::fill(ringLp_.begin(), ringLp_.end(), 0.0f);
+    x1_ = x2_ = y1_ = y2_ = 0.0f;
     pos_ = count_ = 0;
     voiced_ = false;
     histLen_ = histPos_ = 0;
@@ -45,7 +61,13 @@ void Analyzer::reset() {
 }
 
 bool Analyzer::push(float x, HarmFrame& f) {
+    const float lp = b0_ * x + b1_ * x1_ + b2_ * x2_ - a1_ * y1_ - a2_ * y2_;
+    x2_ = x1_;
+    x1_ = x;
+    y2_ = y1_;
+    y1_ = lp;
     ring_[(size_t) pos_] = x;
+    ringLp_[(size_t) pos_] = lp;
     if (++pos_ == win_) pos_ = 0;
     const float d = x - prevX_;
     prevX_ = x;
@@ -82,30 +104,31 @@ void Analyzer::analyze(HarmFrame& f) {
     // Linearize the ring: oldest sample first.
     std::copy(ring_.begin() + pos_, ring_.end(), lin_.begin());
     std::copy(ring_.begin(), ring_.begin() + pos_, lin_.begin() + (win_ - pos_));
+    std::copy(ringLp_.begin() + pos_, ringLp_.end(), linLp_.begin());
+    std::copy(ringLp_.begin(), ringLp_.begin() + pos_, linLp_.begin() + (win_ - pos_));
 
-    double e0 = 0.0, mean = 0.0;
-    for (float v : lin_) {
-        e0 += (double) v * v;
-        mean += v;
-    }
+    double e0 = 0.0;
+    for (float v : lin_) e0 += (double) v * v;
     const bool audible = e0 / win_ > floorPow_;
-    mean /= win_;
 
     // --- F0: NSDF n(τ) = 2 r(τ) / m(τ), r via FFT autocorrelation, m incremental.
     float clarity = 0.0f, f0 = 0.0f;
     if (audible) {
         const size_t n = acFft_.size();
-        for (auto& v : lin_) v -= (float) mean; // DC biases every lag
+        double mean = 0.0;
+        for (float v : linLp_) mean += v;
+        mean /= win_;
+        for (auto& v : linLp_) v -= (float) mean; // DC biases every lag
         e0 = 0.0;
-        for (float v : lin_) e0 += (double) v * v;
-        for (size_t i = 0; i < n; ++i) acBuf_[i] = i < (size_t) win_ ? lin_[i] : 0.0f;
+        for (float v : linLp_) e0 += (double) v * v;
+        for (size_t i = 0; i < n; ++i) acBuf_[i] = i < (size_t) win_ ? linLp_[i] : 0.0f;
         acFft_.forward(acBuf_.data());
         for (auto& v : acBuf_) v = std::norm(v);
         acFft_.forward(acBuf_.data()); // real, even spectrum: forward == inverse up to 1/n
         double m = 2.0 * e0;
         for (int tau = 0; tau <= maxLag_ + 1; ++tau) {
             nsdf_[(size_t) tau] = m > 0.0 ? (float) (2.0 * acBuf_[(size_t) tau].real() / (double) n / m) : 0.0f;
-            const double a = lin_[(size_t) tau], b = lin_[(size_t) (win_ - 1 - tau)];
+            const double a = linLp_[(size_t) tau], b = linLp_[(size_t) (win_ - 1 - tau)];
             m -= a * a + b * b;
         }
 

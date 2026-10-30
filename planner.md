@@ -300,13 +300,13 @@ Objetivo: voz entra → decomposta → ressintetizada 1:1, transparente. Todo o 
 - Plano B se a máscara gerar artefato em ganhos grandes: suavizar ganho entre frames (one-pole ~20 ms), limitar |ΔG| a ±12 dB por harmônico, alargar lóbulo para ±3 bins
 
 **Gate**
-- [ ] Identidade numérica: ganhos = 1 → erro < −100 dBFS (deve passar por construção; se não passar é bug, não pesquisa)
+- [x] Identidade numérica: ganhos = 1 → erro < −100 dBFS (deve passar por construção; se não passar é bug, não pesquisa) — ≤ −130 dBFS no golden, testes a 44.1/48k
 - [ ] ABX cego próprio: 20 clipes (vogais sustentadas + frases), original vs. caminho DSP completo com ganhos = 1 → acerto ≤ 14/20 (não significativo, p ≥ 0.05)
 - [ ] Escuta com máscara ativa (único teste real do R1 agora): Brightness ±6 e Even/Odd ±1 nos mesmos 20 clipes, checklist anotado sem metálico/flutter/pré-eco
-- [ ] LSD < 0.5 dB (harmônicos H1–H40) no caminho identidade
-- [ ] Roundtrip aditivo→skeleton dentro de ±0.2 dB
+- [x] LSD < 0.5 dB (harmônicos H1–H40) no caminho identidade — 0.00–0.01 dB no golden (`larynx_render`)
+- [x] Roundtrip aditivo→skeleton dentro de ±0.2 dB (`tests/test_engine.cpp`)
 - [ ] Calibrar aqui o limiar de deriva de vogal (NFR5): medir F1/F2 antes/depois na ressíntese perfeita → esse desvio é o piso do sistema
-- [ ] RTF(synth) < 0.1
+- [x] RTF(synth) < 0.1 — engine inteiro 0.03–0.04 em identidade, ≤ 0.08 com aditivo pesado
 
 Se não passar: não avançar. Iterar aqui (é o risco R1 do §16).
 

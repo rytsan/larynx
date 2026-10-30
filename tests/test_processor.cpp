@@ -70,15 +70,22 @@ TEST_CASE("host bypass (processBlockBypassed) is the same delayed copy") {
     juce::MidiBuffer midi;
     p.processBlockBypassed(buf, midi);
     std::vector<float> out(buf.getReadPointer(0), buf.getReadPointer(0) + in.size());
-    CHECK(delayedCopy(in, out, p.getLatencySamples()));
+    CHECK(delayedCopy(in, out, p.getLatencySamples(), 480));
 }
 
-TEST_CASE("processed path with 0 dB trims is also a bit-perfect delayed copy") {
+TEST_CASE("processed path with 0 dB trims is the delayed input within -100 dBFS (P3 identity)") {
     juce::ScopedJuceInitialiser_GUI init;
-    LarynxProcessor p;
-    p.prepareToPlay(48000.0, 512);
-    const auto in = noise(20000);
-    CHECK(delayedCopy(in, run(p, in), p.getLatencySamples()));
+    for (double sr : { 44100.0, 48000.0 }) {
+        LarynxProcessor p;
+        p.prepareToPlay(sr, 512);
+        const auto in = noise(20000);
+        const auto out = run(p, in);
+        const size_t L = (size_t) p.getLatencySamples();
+        float worst = 0.0f;
+        for (size_t n = 0; n < out.size(); ++n)
+            worst = std::max(worst, std::abs(out[n] - (n < L ? 0.0f : in[n - L])));
+        CHECK(worst < 1e-5f);
+    }
 }
 
 TEST_CASE("bypass toggle returns to bit-perfect after the 10 ms crossfade") {

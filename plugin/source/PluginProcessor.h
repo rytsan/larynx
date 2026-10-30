@@ -1,6 +1,7 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "core/delay_line.h"
+#include "core/engine.h"
 
 namespace ParamID {
 inline constexpr auto mode = "mode", prior = "prior", mix = "mix", bright = "bright",
@@ -55,7 +56,8 @@ private:
     std::atomic<float>* bypassOn = nullptr;
 
     larynx::DelayLine delay;
-    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> gain { 1.0f };
+    larynx::Engine engine; // P3: identity path (all gains = 1); P4 shapes the target envelope
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> inGain { 1.0f }, outGain { 1.0f };
     juce::SmoothedValue<float> bypassFade { 0.0f }; // 0 = processed, 1 = bypassed
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(LarynxProcessor)

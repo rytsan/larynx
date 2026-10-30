@@ -165,3 +165,17 @@ TEST_CASE("noise bursts on a vowel are transients; the vowel itself is not", "[a
     }
     for (int i = 0; i < 3; ++i) CHECK(found[(size_t) i]);
 }
+
+TEST_CASE("bright voice with vibrato stays voiced", "[analyzer]") {
+    // Flat spectrum to H40 (12 kHz): upper partials carry most energy and sweep ±50 cents at 5.5 Hz.
+    const double fs = 48000.0, base = 300.0;
+    const auto f0 = [=](double t) { return base * std::pow(2.0, 50.0 / 1200.0 * std::sin(kTwoPi * 5.5 * t)); };
+    const auto frames = analyze(tone(fs, 2.0, f0, [](int) { return 0.02; }, 40), fs);
+    int voiced = 0, total = 0;
+    for (const auto& fr : frames) {
+        if (fr.time < 0.1) continue;
+        ++total;
+        voiced += (fr.flags & larynx::kVoiced) ? 1 : 0;
+    }
+    CHECK(voiced == total);
+}

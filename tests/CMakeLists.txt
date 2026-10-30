@@ -4,7 +4,7 @@ FetchContent_Declare(Catch2
     GIT_SHALLOW TRUE)
 FetchContent_MakeAvailable(Catch2)
 
-add_executable(larynx_tests test_processor.cpp test_analyzer.cpp)
+add_executable(larynx_tests test_processor.cpp test_analyzer.cpp test_engine.cpp)
 
 # Reuse the plugin's shared-code static lib (JUCE modules already compiled into it).
 target_include_directories(larynx_tests PRIVATE $<TARGET_PROPERTY:Larynx,INCLUDE_DIRECTORIES>)

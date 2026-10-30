@@ -41,7 +41,7 @@ private:
     float floorPow_ = 0.0f, centroidCoef_ = 0.0f;
 
     Fft acFft_, specFft_;
-    std::vector<float> ring_, lin_, nsdf_, hann_;
+    std::vector<float> ring_, ringLp_, lin_, linLp_, nsdf_, hann_;
     std::vector<Fft::cf> acBuf_, specBuf_;
     int pos_ = 0, count_ = 0;
 
@@ -51,6 +51,10 @@ private:
     bool voiced_ = false;
     std::array<float, 5> hist_ {}; // raw F0 of recent voiced frames (octave guard only)
     int histLen_ = 0, histPos_ = 0;
+
+    // 4 kHz Butterworth low-pass feeding the NSDF only (RBJ biquad, direct form I).
+    float b0_ = 0.0f, b1_ = 0.0f, b2_ = 0.0f, a1_ = 0.0f, a2_ = 0.0f;
+    float x1_ = 0.0f, x2_ = 0.0f, y1_ = 0.0f, y2_ = 0.0f;
 
     float prevX_ = 0.0f, eHop_ = 0.0f, edHop_ = 0.0f;
     std::array<float, 8> edHist_ {};

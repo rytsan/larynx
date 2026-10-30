@@ -1,5 +1,5 @@
 # core/: pure DSP, no JUCE. Shared by the plugin, tests and tools/bench_plugin.
-add_library(larynx_core STATIC source/core/analyzer.cpp)
+add_library(larynx_core STATIC source/core/analyzer.cpp source/core/skeleton.cpp source/core/synth.cpp)
 target_include_directories(larynx_core PUBLIC source)
 target_compile_features(larynx_core PUBLIC cxx_std_20)
 target_link_libraries(larynx_core PRIVATE juce::juce_recommended_warning_flags juce::juce_recommended_config_flags)

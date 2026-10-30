@@ -56,9 +56,13 @@ void LarynxProcessor::prepareToPlay(double sampleRate, int maxBlockSize) {
     const int latency = latencyFor(sampleRate);
     setLatencySamples(latency);
     delay.resize((size_t) latency);
+    engine.prepare(sampleRate);
+    jassert(engine.latency() == latency);
 
-    gain.reset(sampleRate, 0.03); // §5: 30 ms smoothing
-    gain.setCurrentAndTargetValue(juce::Decibels::decibelsToGain(inDb->load() + outDb->load()));
+    inGain.reset(sampleRate, 0.03); // §5: 30 ms smoothing
+    outGain.reset(sampleRate, 0.03);
+    inGain.setCurrentAndTargetValue(juce::Decibels::decibelsToGain(inDb->load()));
+    outGain.setCurrentAndTargetValue(juce::Decibels::decibelsToGain(outDb->load()));
     bypassFade.reset(sampleRate, 0.01); // NFR4: 10 ms bypass crossfade
     bypassFade.setCurrentAndTargetValue(bypassOn->load() > 0.5f ? 1.0f : 0.0f);
 }
@@ -71,20 +75,23 @@ void LarynxProcessor::process(juce::AudioBuffer<float>& buffer, bool forceBypass
     juce::ScopedNoDenormals noDenormals;
     juce::AudioProcessLoadMeasurer::ScopedTimer timer(load, buffer.getNumSamples());
 
-    gain.setTargetValue(juce::Decibels::decibelsToGain(inDb->load() + outDb->load()));
+    inGain.setTargetValue(juce::Decibels::decibelsToGain(inDb->load()));
+    outGain.setTargetValue(juce::Decibels::decibelsToGain(outDb->load()));
     bypassFade.setTargetValue(forceBypass || bypassOn->load() > 0.5f ? 1.0f : 0.0f);
 
     auto* x = buffer.getWritePointer(0);
     float pIn = 0.0f, pOut = 0.0f;
 
-    // P1: the "processed" path is only the trims. Both paths share the same delay,
-    // so toggling bypass never moves audio in time (NFR4).
+    // Processed path: in trim → engine (latency = window) → out trim. Bypass is the input through a
+    // delay of the same length, so toggling never moves audio in time (NFR4). The engine keeps
+    // running while bypassed, so un-bypassing needs no warm-up.
+    // ponytail: Live/Studio run the DSP path until the neural core exists (P6/P7).
     for (int i = 0; i < buffer.getNumSamples(); ++i) {
         pIn = std::max(pIn, std::abs(x[i]));
         const float d = delay.process(x[i]);
         const bool fading = bypassFade.isSmoothing();
         const float b = bypassFade.getNextValue();
-        const float wet = d * gain.getNextValue();
+        const float wet = engine.process(x[i] * inGain.getNextValue()) * outGain.getNextValue();
         // Outside the fade, copy exactly: d + (wet - d) * 0 is not guaranteed bit-exact.
         x[i] = fading ? wet + (d - wet) * b : (b > 0.5f ? d : wet);
         pOut = std::max(pOut, std::abs(x[i]));

@@ -12,13 +12,14 @@ Projeto pessoal, não comercial. O plano completo (requisitos, arquitetura, pass
 |---|---|---|
 | 1 | Casca do VST: build, parâmetros, bypass bit-perfect, UI estática | código pronto, testes passando; falta validar em DAW |
 | 2 | Analyzer (F0 / voicing) | código + testes sintéticos; falta validar flags e F0 em voz real |
-| 3 | Síntese identidade | — |
+| 3 | Síntese identidade | identidade/LSD/roundtrip/RTF verdes; faltam ABX, escuta com máscara e piso de deriva de vogal |
 | 4 | Controles harmônicos manuais | — |
 | 5 | Dados e treino | golden set congelado |
 | 6–9 | Neural Live, Studio, camada criativa, fechamento | — |
 
-Hoje o plugin já reporta a latência final (1024 amostras @48 kHz ≈ 21.3 ms) e faz só os trims de entrada/saída.
-O bypass é uma cópia exata da entrada atrasada pela latência, então o alinhamento no host não muda quando o DSP real entrar.
+O plugin reporta a latência final (1024 amostras @48 kHz ≈ 21.3 ms). O caminho processado já é analyzer → skeleton → synth
+(máscara de ganho sobre a STFT original + aditivo para harmônicos ausentes) com todos os ganhos = 1: sai a entrada atrasada,
+erro ≤ −130 dBFS. Live/Studio usam o mesmo caminho até o P6. O bypass continua cópia bit-perfect atrasada pela latência.
 
 ## Build
 
@@ -79,9 +80,17 @@ No WSL, o Standalone abre via WSLg com `DISPLAY=:0`.
 (< 15 cents), vogal sintética de 30 s com fundamental fraca (sem salto de oitava), silêncio/ruído/sibilante
 e transientes sobre vogal.
 
+`tests/test_engine.cpp` cobre o caminho DSP: identidade (< −100 dBFS a 44.1/48k), extração de senóides e de pilhas
+harmônicas (± 0.2 dB), energia das bandas de ruído, máscara (−6 dB no H3) e aditivo (H15 ausente injetado a −30 dB).
+
 ```bash
 ./build/tools/bench_plugin/larynx_analyze golden/8_vozes/alto_ru/cantado.wav > frames.csv   # RTF no stderr
+./build/tools/bench_plugin/larynx_render  golden/8_vozes/alto_ru/cantado.wav out.wav        # identidade: erro, LSD, RTF
+./build/tools/bench_plugin/larynx_render  in.wav out.wav --bright 6 --evenodd -6            # máscara ativa (escuta do P3)
 ```
+
+`out.wav` sai alinhado com a entrada (latência removida), pronto para ABX. `--bright` (dB/oct) e `--evenodd` (dB) são
+operadores provisórios para o gate de escuta do P3; os definitivos entram no M4 (P4).
 
 ## Golden set
 
@@ -104,10 +113,10 @@ plugin/
   source/
     PluginProcessor.*   parâmetros, latência, bypass, estado
     PluginEditor.*      UI 900×540 renderizada via OpenGL
-    core/               DSP puro, sem JUCE (testável headless): analyzer, fft, harm_frame
+    core/               DSP puro, sem JUCE (testável headless): analyzer, skeleton, synth, engine, fft, harm_frame
     ui/                 LookAndFeel do rack, gráfico de harmônicos
 tests/                  Catch2
-tools/bench_plugin/     larynx_analyze: analyzer sobre um WAV → CSV por frame + RTF
+tools/bench_plugin/     larynx_analyze (analyzer → CSV + RTF), larynx_render (caminho DSP → WAV + RTF/LSD)
 ml/data/                pipeline de dados (fetch_golden.py, credits.md)
 golden/                 manifest + hashes do golden set
 planner.md              plano do projeto
