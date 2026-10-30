@@ -20,6 +20,11 @@ FetchContent_MakeAvailable(juce clap_juce_extensions)
 add_subdirectory(plugin)
 add_subdirectory(tools/bench_plugin)
 
+option(LARYNX_PYCORE "Build the pybind11 core module for ml/" ON)
+if(LARYNX_PYCORE)
+    add_subdirectory(ml/pycore)
+endif()
+
 option(LARYNX_TESTS "Build tests" ON)
 if(LARYNX_TESTS)
     enable_testing()
