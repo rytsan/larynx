@@ -404,7 +404,7 @@ Nota sobre a mask "truncar em H40": no plugin real a rede também só recebe H1.
 - [ ] Preserva vogal e vida nos 8 golden voices (NFR5/6)
 - [ ] ABX próprio no modo Studio: acerto ≤ 65% (original rico vs. restaurado)
 - [ ] Export equivalente em C++ validado
-- [ ] Para 100 frames aleatórios do dataset, a extração harmônica via pybind11 e via C++ headless (tools/bench_plugin) produzem h[80] com diff < 0.01 dB. Se não, consertar antes de treinar.
+- [x] Para 100 frames aleatórios do dataset, a extração harmônica via pybind11 e via C++ headless (tools/bench_plugin) produzem h[80] com diff < 0.01 dB. Se não, consertar antes de treinar. — `ml/pycore/check_equivalence.py`: pior 0.0001 dB (arredondamento do CSV) no golden; rodar de novo sobre os shards reais
 - [ ] DatasetQC: taxa de descarte documentada; manifest com sha256
 
 ## 10. PASSO 6 — Neural Core Live (M3)
@@ -556,6 +556,7 @@ A progressão do projeto é estritamente guiada pelo grafo de dependências téc
 **Trilha Paralela: Dados e Machine Learning**
 - **Passo 5a — Dados e pipeline (imediato, paralelo aos Passos 1–3)**
    - Download, licenças, QC espectral, `bw_hz` por clipe, split por cantor, `baseline.py`, `model.py`/`train.py`/`export.py` depurados com features provisórias (WORLD). Modelos daqui são descartáveis — só provam o pipeline.
+   - **Estado (2026-10-30):** WORLD pulado — `ml/pycore` já expõe analyzer + skeleton + `core/features.h` (entrada da rede definida uma vez, em C++), então o pipeline foi feito direto sobre as features reais. Rodando ponta a ponta (smoke): `build_shards.py` (decompose + QC num arquivo só; sem RT60 e sem inarmonicidade, ver docstring), `masks.py`, `baseline.py`, `model.py` (TCN 402k params + export), `train.py`. Falta: corpora (VocalSet/VCTK baixando; LibriTTS-R, JVS-MuSiC, PTDB-TUG manuais), loss auxiliar F1/F2. Se o core mudar após o gate de escuta do P3, o hash do core invalida os shards.
 - **Passo 5b — Shards reais e treino (após gate do Passo 3)**
    - Pré-requisito: `core/analyzer` (P2) e `core/skeleton` (P3) congelados e expostos via `ml/pycore`.
    - Foco: shards com hash do core, treino Live (D=0) e Studio (D=16), superação obrigatória do baseline.

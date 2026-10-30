@@ -14,7 +14,7 @@ Projeto pessoal, não comercial. O plano completo (requisitos, arquitetura, pass
 | 2 | Analyzer (F0 / voicing) | código + testes sintéticos; falta validar flags e F0 em voz real |
 | 3 | Síntese identidade | identidade/LSD/roundtrip/RTF verdes; faltam ABX e escuta com máscara |
 | 4 | Controles harmônicos manuais | — |
-| 5 | Dados e treino | golden set congelado |
+| 5 | Dados e treino | golden congelado; pycore, shards, QC, baseline, TCN, treino e export rodando ponta a ponta; corpora baixando |
 | 6–9 | Neural Live, Studio, camada criativa, fechamento | — |
 
 O plugin reporta a latência final (1024 amostras @48 kHz ≈ 21.3 ms). O caminho processado já é analyzer → skeleton → synth
@@ -97,6 +97,20 @@ Deriva de vogal (NFR5) usa Praat via parselmouth, num venv local:
 ```bash
 python3 -m venv .venv && .venv/bin/pip install praat-parselmouth numpy
 .venv/bin/python ml/eval/metrics.py in.wav out.wav [in2.wav out2.wav ...]   # mediana/p95 de |ΔF1|, |ΔF2| em %
+```
+
+## Trilha ML
+
+Tudo num venv local (o `CMakeLists` compila `build/ml/pycore` com o Python do sistema; mesma versão do venv):
+
+```bash
+python3 -m venv .venv && .venv/bin/pip install praat-parselmouth numpy scipy soundfile pyloudnorm
+.venv/bin/pip install torch --index-url https://download.pytorch.org/whl/cu121
+PYTHONPATH=build/ml/pycore .venv/bin/python ml/pycore/check_equivalence.py golden/8_vozes/*/*.wav  # pycore == C++
+ml/data/download_corpora.sh                                    # VocalSet + VCTK em data/ (~17 GB)
+.venv/bin/python ml/data/build_shards.py vocalset vctk --max-hours 10
+.venv/bin/python ml/train/train.py --name live0                # Studio: --delay 16
+.venv/bin/python ml/train/model.py data/runs/live0/best.pt model_live.json
 ```
 
 ## Golden set

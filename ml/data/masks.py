@@ -54,4 +54,4 @@ def conditioning_noise(f0, flags, voiced_bit, rng):
     Returns new (f0, flags)."""
     f0 = f0 * 2 ** (rng.uniform(-15, 15, size=f0.shape) / 1200)
     drop = (flags & voiced_bit).astype(bool) & (rng.uniform(size=flags.shape) < 0.05)
-    return f0.astype(np.float32), np.where(drop, flags & ~voiced_bit, flags).astype(np.uint8)
+    return f0.astype(np.float32), np.where(drop, flags & (0xFF ^ voiced_bit), flags).astype(np.uint8)
