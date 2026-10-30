@@ -331,7 +331,7 @@ Objetivo: plugin útil sem ML. Os knobs do rack ganham função real.
 
 **Gate**
 - [ ] Soa como "EQ harmônico musical" — você usa numa música real por 1 semana
-- [ ] Deriva de vogal < limiar do P3 em todos os knobs nos defaults+±3
+- [ ] Deriva de vogal < limiar do P3 em todos os knobs nos defaults+±3 — medido (golden, mediana F1/F2, limiar proposto 3%): Air ±3 dB 0.0/0.0% ✔; Brightness ±3 dB/oct 8–11% / 2.7–3.0% ✘; Even/Odd ±1 (±6 dB) 10–13% / 3.7–4.1% ✘; Formant ±3 st 14–16% / 16–17% (é a função do knob). **Decisão pendente:** Brightness e Even/Odd mudam o tilt/paridade e o LPC lê isso como formante deslocado; o gate como escrito só faz sentido para Air (e Prior/rede no P6). Opções: gate de deriva só para Air + rede, Brightness/Even-Odd por escuta; ou reduzir escala (Even/Odd ±1 = ±3 dB)
 - [ ] Gráfico a 60 fps com dados reais; automação sem zipper
 - [x] Prior=0 e timbre todo em 0 = bit-identical ao P3; Prior=0 com Brightness=+6 ainda altera o som (teste de regressão da ordem do M4) — `tests/test_blend.cpp`, `tests/test_processor.cpp`
 
