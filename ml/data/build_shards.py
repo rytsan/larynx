@@ -1,0 +1,217 @@
+#!/usr/bin/env python3
+"""Decompose training corpora into shards through ml/pycore (§9.2, §9.3). Replaces decompose.py +
+qc_spectral.py: one pass reads the clip, runs QC and the C++ analysis, writes one .npz.
+
+    .venv/bin/python ml/data/build_shards.py vocalset vctk [--data data] [--jobs 8] [--max-hours 10]
+
+Per clip (resampled to 48 kHz, loudness-normalized to -20 LUFS):
+  QC   reject on clipping, HNR < 12 dB, jitter/shimmer out of range (Praat).
+       RT60 is not checked: the scripted corpora are dry studio recordings. No inharmonicity test:
+       peak-vs-n·f0 deviation measures gliding F0 in speech, not inharmonic partials.
+  out  data/shards/<corpus>/<speaker>/<clip>.npz with the target analysis (clean) and, when an audio
+       mask was drawn, the input analysis of the corrupted audio (masks.py).
+Manifest data/shards/manifest.csv: one row per clip, kept or rejected, with split (by speaker,
+80/10/10), bw_hz, QC numbers, npz sha256 and the core hash. Shards whose core hash differs from
+the current one are stale and get rebuilt.
+"""
+import argparse
+import csv
+import hashlib
+import os
+import sys
+import zlib
+from concurrent.futures import ProcessPoolExecutor
+from pathlib import Path
+
+import numpy as np
+import parselmouth
+import pyloudnorm
+import soundfile as sf
+from scipy import signal
+
+REPO = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO / "build/ml/pycore"))
+sys.path.insert(0, str(REPO / "ml/data"))
+import masks  # noqa: E402
+import pycore  # noqa: E402
+
+FS = 48000
+CORE_FILES = ["analyzer.h", "analyzer.cpp", "skeleton.h", "skeleton.cpp", "features.h", "fft.h", "harm_frame.h"]
+
+# corpus: (glob under data/<corpus>, speaker id from the path relative to data/<corpus>)
+CORPORA = {
+    # FULL/<singer>/<context>/<technique>/<file>.wav, 44.1 kHz
+    "vocalset": ("**/FULL/*/*/*/*.wav", lambda p: p.parts[-4]),
+    # wav48_silence_trimmed/<speaker>/<speaker>_<n>_mic1.flac, 48 kHz (mic2 is a second take of the same audio)
+    "vctk": ("**/wav48_silence_trimmed/*/*_mic1.flac", lambda p: p.parts[-2]),
+}
+
+FIELDS = ["path", "corpus", "speaker", "split", "kept", "reason", "sr", "seconds", "bw_hz", "hnr_db",
+          "jitter", "shimmer", "audio_mask", "frames", "sha256", "core_hash"]
+
+
+def core_hash():
+    h = hashlib.sha256()
+    for f in CORE_FILES:
+        h.update((REPO / "plugin/source/core" / f).read_bytes())
+    return h.hexdigest()[:16]
+
+
+def split_of(corpus, speaker):
+    b = zlib.crc32(f"{corpus}/{speaker}".encode()) % 10
+    return "train" if b < 8 else "val" if b == 8 else "test"
+
+
+def bandwidth(x, fs, sr):
+    """min(sr/2, rolloff): highest frequency where the long-term spectrum is within 90 dB of its peak.
+    Catches band-limited sources (24 kHz corpora upsampled: nothing above 12 kHz), not the natural
+    decay of a low voice. ponytail: a lowpass under 16-bit dither is not detected."""
+    f, p = signal.welch(x, fs=fs, nperseg=4096)
+    db = 10 * np.log10(p + 1e-20)
+    above = np.flatnonzero(db > db.max() - 90)
+    return float(min(sr / 2, f[above[-1]] if len(above) else sr / 2))
+
+
+def hnr_db(fr):
+    """Median over voiced frames of harmonic vs. noise-band power, from the C++ analysis itself."""
+    v = (fr["flags"] & pycore.VOICED).astype(bool) & (fr["f0"] > 0)
+    if v.sum() < 20:
+        return -100.0
+    hp = np.sum(10 ** (fr["h"][v] / 10) / 2, axis=1)
+    npow = np.sum(10 ** (fr["noise"][v] / 10), axis=1) + 1e-20
+    return float(np.median(10 * np.log10(hp / npow + 1e-20)))
+
+
+def praat_qc(x, fs):
+    snd = parselmouth.Sound(x.astype(np.float64), fs)
+    pp = parselmouth.praat.call(snd, "To PointProcess (periodic, cc)", 60, 1200)
+    jit = parselmouth.praat.call(pp, "Get jitter (local)", 0, 0, 0.0001, 0.02, 1.3)
+    shim = parselmouth.praat.call([snd, pp], "Get shimmer (local)", 0, 0, 0.0001, 0.02, 1.3, 1.6)
+    return float(np.nan_to_num(jit, nan=1.0)), float(np.nan_to_num(shim, nan=1.0))
+
+
+def reject_reason(peak, hnr, jit, shim):
+    if peak >= 0.999:
+        return "clipping"
+    if hnr < 12:
+        return "hnr"
+    if jit > 0.03 or shim > 0.2:  # pathological / tracking failure; "too clean" only matters for ACE-Step
+        return "jitter_shimmer"
+    return ""
+
+
+def frames_dict(fr):
+    return {k: fr[k] for k in ("f0", "flags", "n_valid")} | {k: fr[k].astype(np.float16) for k in ("h", "noise")}
+
+
+def process(job):
+    corpus, speaker, src, dst, seed = job
+    row = {"path": str(dst), "corpus": corpus, "speaker": speaker, "split": split_of(corpus, speaker),
+           "kept": 0, "reason": "", "audio_mask": "", "frames": 0, "sha256": "", "core_hash": CORE_HASH}
+    try:
+        x, sr = sf.read(src, dtype="float32", always_2d=True)
+    except Exception as e:  # unreadable file: record it, keep going
+        return row | {"reason": f"read: {e}"}
+    x = x[:, 0]
+    row |= {"sr": sr, "seconds": round(len(x) / sr, 3)}
+    peak = float(np.max(np.abs(x))) if len(x) else 0.0
+    if sr != FS:
+        g = np.gcd(sr, FS)
+        x = signal.resample_poly(x, FS // g, sr // g).astype(np.float32)
+    if len(x) < FS // 2:
+        return row | {"reason": "short"}
+    lufs = pyloudnorm.Meter(FS).integrated_loudness(x)
+    if not np.isfinite(lufs):
+        return row | {"reason": "silent"}
+    x = (x * 10 ** ((-20 - lufs) / 20)).astype(np.float32)
+    row["bw_hz"] = round(bandwidth(x, FS, sr))
+
+    target = pycore.analyze(x, FS)
+    hnr = hnr_db(target)
+    jit, shim = praat_qc(x, FS)
+    row |= {"hnr_db": round(hnr, 2), "jitter": round(jit, 4), "shimmer": round(shim, 4)}
+    if reason := reject_reason(peak, hnr, jit, shim):
+        return row | {"reason": reason}
+
+    rng = np.random.default_rng(seed)
+    out = {f"t_{k}": v for k, v in frames_dict(target).items()}
+    if mask := masks.draw_audio_mask(rng):
+        out |= {f"i_{k}": v for k, v in frames_dict(pycore.analyze(masks.apply_audio_mask(mask, x, FS, rng), FS)).items()}
+    out["bw_hz"] = np.float32(row["bw_hz"])
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    np.savez(dst, **out)
+    return row | {"kept": 1, "audio_mask": mask, "frames": len(target["f0"]),
+                  "sha256": hashlib.sha256(dst.read_bytes()).hexdigest()}
+
+
+CORE_HASH = core_hash()
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("corpora", nargs="+", choices=CORPORA)
+    ap.add_argument("--data", type=Path, default=REPO / "data")
+    ap.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2) - 2))
+    ap.add_argument("--max-hours", type=float, default=0, help="per corpus, random subsample by clip (0 = all)")
+    a = ap.parse_args()
+
+    out_dir = a.data / "shards"
+    man_path = out_dir / "manifest.csv"
+    old = {}
+    if man_path.exists():
+        with open(man_path) as f:
+            old = {r["path"]: r for r in csv.DictReader(f) if r["core_hash"] == CORE_HASH}
+
+    jobs = []
+    for corpus in a.corpora:
+        pattern, speaker_of = CORPORA[corpus]
+        root = a.data / corpus
+        files = sorted(root.glob(pattern))
+        if not files:
+            sys.exit(f"{corpus}: no files match {root}/{pattern} (run ml/data/download_corpora.sh)")
+        rng = np.random.default_rng(zlib.crc32(corpus.encode()))
+        rng.shuffle(files)
+        budget = a.max_hours * 3600 if a.max_hours else float("inf")
+        for src in files:
+            if budget <= 0:
+                break
+            budget -= sf.info(src).duration if a.max_hours else 0
+            rel = src.relative_to(root)
+            dst = out_dir / corpus / speaker_of(rel) / (rel.stem + ".npz")
+            jobs.append((corpus, speaker_of(rel), src, dst, zlib.crc32(str(rel).encode())))
+
+    rows = [old[str(j[3])] for j in jobs if str(j[3]) in old]
+    todo = [j for j in jobs if str(j[3]) not in old]
+    print(f"{len(jobs)} clips, {len(todo)} to build (core {CORE_HASH})", flush=True)
+    with ProcessPoolExecutor(a.jobs) as ex:
+        for i, row in enumerate(ex.map(process, todo, chunksize=8)):
+            rows.append(row)
+            if i % 500 == 0:
+                print(f"  {i}/{len(todo)}", flush=True)
+
+    # Rows of corpora not rebuilt this run stay in the manifest.
+    rows += [r for p, r in old.items() if r["corpus"] not in a.corpora]
+    rows.sort(key=lambda r: r["path"])
+    with open(man_path, "w", newline="") as f:
+        w = csv.DictWriter(f, FIELDS, extrasaction="ignore")
+        w.writeheader()
+        w.writerows(rows)
+
+    by_speaker = {}
+    for r in rows:
+        by_speaker.setdefault((r["corpus"], r["speaker"]), set()).add(r["split"])
+    assert all(len(s) == 1 for s in by_speaker.values()), "speaker in more than one split"
+    for corpus in sorted({r["corpus"] for r in rows}):
+        rs = [r for r in rows if r["corpus"] == corpus]
+        kept = [r for r in rs if int(r["kept"])]
+        reasons = {}
+        for r in rs:
+            if not int(r["kept"]):
+                reasons[r["reason"].split(":")[0]] = reasons.get(r["reason"].split(":")[0], 0) + 1
+        hours = sum(float(r["seconds"]) for r in kept) / 3600
+        print(f"{corpus}: kept {len(kept)}/{len(rs)} ({100 * (1 - len(kept) / max(1, len(rs))):.1f}% discarded, "
+              f"{hours:.2f} h) rejects {reasons}")
+
+
+if __name__ == "__main__":
+    main()
