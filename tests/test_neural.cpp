@@ -94,6 +94,7 @@ TEST_CASE("model JSON: parse, contract check", "[neural]") {
 TEST_CASE("mode without weights runs DSP", "[neural]") {
     juce::ScopedJuceInitialiser_GUI init;
     LarynxProcessor p;
+    REQUIRE_FALSE(p.loadModel(LarynxProcessor::Live, {})); // invalid weights unload (embedded model, if any)
     setParam(p, ParamID::mode, 1.0f);
     p.prepareToPlay(48000.0, 480);
     REQUIRE(p.runningMode() == LarynxProcessor::DSP);

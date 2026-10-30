@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """§9.6 gate: exported JSON run by core/neuralcore (C++, via pycore) == PyTorch, max |diff| < 1e-4.
+The reference runs in float64: with trained weights (outputs up to ~90 dB) PyTorch's own float32
+result is 1.7e-4 off the exact one, while the C++ float32 path stays within ~6e-5.
 
     .venv/bin/python ml/train/check_export.py model.json [ckpt.pt]
 
@@ -34,10 +36,10 @@ def main(json_path, ckpt=None):
     m.eval()
     x = np.random.default_rng(0).uniform(0, 1, size=(600, 51)).astype(np.float32)  # > RF: ring wrap covered
     with torch.no_grad():
-        ref = m(torch.from_numpy(x)[None])[0].numpy()
+        ref = m.double()(torch.from_numpy(x).double()[None])[0].numpy()
     out = pycore.tcn_run(json.load(open(json_path)), x)
     d = float(np.abs(out - ref).max())
-    print(f"max |C++ - torch| = {d:.2e} over {x.shape[0]} frames -> {'PASS' if d < TOL else 'FAIL'}")
+    print(f"max |C++ - torch(float64)| = {d:.2e} over {x.shape[0]} frames -> {'PASS' if d < TOL else 'FAIL'}")
     return d < TOL
 
 
