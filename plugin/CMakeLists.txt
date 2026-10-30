@@ -21,8 +21,10 @@ clap_juce_extensions_plugin(TARGET Larynx
     CLAP_ID "com.ricardo.larynx"
     CLAP_FEATURES audio-effect mono)
 
-# Network weights exported by ml/train/model.py (install.sh --train). Without them Live/Studio run DSP.
-file(GLOB LARYNX_MODEL_FILES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/source/neural/model_*.json)
+# Network weights (ml/train/model.py) and morph profiles (ml/data/build_morph.py). Without them Live/Studio
+# run DSP and Morph does nothing.
+file(GLOB LARYNX_MODEL_FILES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/source/neural/model_*.json
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/neural/profiles.data)
 if(LARYNX_MODEL_FILES)
     juce_add_binary_data(LarynxModels SOURCES ${LARYNX_MODEL_FILES})
     set_target_properties(LarynxModels PROPERTIES POSITION_INDEPENDENT_CODE ON)

@@ -4,12 +4,13 @@
 #include "core/blend.h"
 #include "core/delay_line.h"
 #include "core/engine.h"
+#include "core/morph.h"
 #include "core/neuralcore.h"
 
 namespace ParamID {
 inline constexpr auto mode = "mode", prior = "prior", mix = "mix", bright = "bright",
     air = "air", evenodd = "evenodd", formant = "formant", sub = "sub", breath = "breath",
-    in = "in", out = "out", bypass = "bypass";
+    in = "in", out = "out", bypass = "bypass", morph = "morph", morphVoice = "morph_voice";
 }
 
 class LarynxProcessor : public juce::AudioProcessor,
@@ -59,6 +60,9 @@ public:
     void getStateInformation(juce::MemoryBlock&) override;
     void setStateInformation(const void*, int) override;
 
+    // Morph profiles (§12), embedded profiles.data from ml/data/build_morph.py; empty without it.
+    static const larynx::MorphProfiles& profiles();
+
     juce::UndoManager undo;
     juce::AudioProcessorValueTreeState apvts;
 
@@ -103,6 +107,9 @@ private:
     std::atomic<float>* formantSt = nullptr;
     std::atomic<float>* subPct = nullptr;
     std::atomic<float>* breathPct = nullptr;
+    std::atomic<float>* morphPct = nullptr;
+    std::atomic<float>* morphVoiceIdx = nullptr;
+    juce::SmoothedValue<float> sMorph;
 
     larynx::DelayLine delay;
     larynx::Engine engine; // analyzer → skeleton → blend (M4) → synth

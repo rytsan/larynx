@@ -13,3 +13,7 @@ VCTK: Yamagishi, Veaux, MacDonald, "CSTR VCTK Corpus: English Multi-speaker Corp
 
 Not scripted yet (check license and real sample rate on download): LibriTTS-R (CC BY 4.0, 24 kHz, openslr 141),
 JVS-MuSiC (research-only terms, 24 kHz), PTDB-TUG (TU Graz, 48 kHz).
+
+`plugin/source/neural/profiles.data` (morph profiles) is derived from the 12 GTSinger singers outside the golden set
+(`ml/data/build_morph.py`): mean harmonic envelopes per vowel and pitch, PCA. Derived data of a CC BY-NC-SA 4.0
+corpus: same license, non-commercial, attribution above.

@@ -24,13 +24,14 @@ LarynxEditor::LarynxEditor(LarynxProcessor& p) : AudioProcessorEditor(p), proc(p
     inTrim = &addKnob(ParamID::in, "IN");
     outTrim = &addKnob(ParamID::out, "OUT");
 
-    morph.setEnabled(false);
-    morph.setTooltip("Morph (P8)");
-    addAndMakeVisible(morph);
-    morphLabel.setText("MORPH", juce::dontSendNotification);
-    morphLabel.setJustificationType(juce::Justification::centred);
-    morphLabel.setFont(juce::FontOptions(11.0f));
-    addAndMakeVisible(morphLabel);
+    morph = &addKnob(ParamID::morph, "MORPH");
+    morph->slider.setEnabled(proc.profiles().singers() > 0);
+    if (auto* voices = dynamic_cast<juce::AudioParameterChoice*>(proc.apvts.getParameter(ParamID::morphVoice)))
+        morphVoice.addItemList(voices->choices, 1);
+    morphVoice.setEnabled(proc.profiles().singers() > 0);
+    morphVoiceAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(proc.apvts, ParamID::morphVoice,
+                                                                                                    morphVoice);
+    addAndMakeVisible(morphVoice);
 
     auto* modeParam = proc.apvts.getParameter(ParamID::mode);
     modeAttachment = std::make_unique<juce::ParameterAttachment>(*modeParam, [this](float v) {
@@ -166,11 +167,6 @@ void LarynxEditor::resized() {
         const int w = r.getWidth() / (int) items.size();
         for (auto* c : items) {
             auto cell = r.removeFromLeft(w);
-            if (c == &morph) {
-                morphLabel.setBounds(cell.removeFromBottom(18));
-                morph.setBounds(cell.reduced(6));
-                continue;
-            }
             for (auto& k : knobs)
                 if (&k->slider == c)
                     row(k.get(), cell);
@@ -184,7 +180,9 @@ void LarynxEditor::resized() {
     graph.setBounds(graphArea);
     layout(restore, { &prior->slider, &mix->slider });
     layout(timbre, { &bright->slider, &air->slider, &evenodd->slider, &formant->slider });
-    layout(create, { &sub->slider, &breath->slider, &morph });
+    layout(create, { &sub->slider, &breath->slider, &morph->slider });
+    morphVoice.setBounds(morph->label.getBounds().expanded(4, 0)); // voice picker replaces the MORPH label
+    morph->label.setVisible(false);
 
     row(inTrim, { footer.getX() + 8, footer.getY() + 2, 70, footer.getHeight() - 4 });
     row(outTrim, { footer.getRight() - 78, footer.getY() + 2, 70, footer.getHeight() - 4 });

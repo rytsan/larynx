@@ -34,6 +34,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout() {
     l.add(range(ParamID::in, "In Trim", -24.0f, 24.0f, "dB"));
     l.add(range(ParamID::out, "Out Trim", -24.0f, 24.0f, "dB"));
     l.add(std::make_unique<AudioParameterBool>(id(ParamID::bypass), "Bypass", false));
+    // Appended in P8 (IDs are a contract: only append).
+    l.add(pct(ParamID::morph, "Morph", 0.0f));
+    StringArray voices;
+    for (int i = 0; i < LarynxProcessor::profiles().singers(); ++i) voices.add(LarynxProcessor::profiles().name(i));
+    if (voices.isEmpty()) voices.add("-");
+    l.add(std::make_unique<AudioParameterChoice>(id(ParamID::morphVoice), "Morph Voice", voices, 0));
     return l;
 }
 
@@ -55,6 +61,8 @@ LarynxProcessor::LarynxProcessor()
     formantSt = apvts.getRawParameterValue(ParamID::formant);
     subPct = apvts.getRawParameterValue(ParamID::sub);
     breathPct = apvts.getRawParameterValue(ParamID::breath);
+    morphPct = apvts.getRawParameterValue(ParamID::morph);
+    morphVoiceIdx = apvts.getRawParameterValue(ParamID::morphVoice);
 
 #if LARYNX_MODELS
     for (auto [m, name] : { std::pair { Live, "model_live_json" }, { Studio, "model_studio_json" } }) {
@@ -93,6 +101,18 @@ const Preset presets[] = {
 };
 
 } // namespace
+
+const larynx::MorphProfiles& LarynxProcessor::profiles() {
+    static const larynx::MorphProfiles p = [] {
+        larynx::MorphProfiles m;
+#if LARYNX_MODELS
+        int size = 0;
+        if (const char* data = BinaryData::getNamedResource("profiles_data", size)) m.load(data, (size_t) size);
+#endif
+        return m;
+    }();
+    return p;
+}
 
 int LarynxProcessor::getNumPrograms() { return (int) std::size(presets); }
 
@@ -215,7 +235,7 @@ void LarynxProcessor::prepareToPlay(double sampleRate, int maxBlockSize) {
 
     for (auto [sv, p, scale] : { std::tuple { &sPrior, priorPct, 0.01f }, { &sMix, mixPct, 0.01f }, { &sBright, brightDb, 1.0f },
                                  { &sAir, airDb, 1.0f }, { &sEvenOdd, evenOdd, 1.0f }, { &sFormant, formantSt, 1.0f },
-                                 { &sSub, subPct, 0.01f }, { &sBreath, breathPct, 0.01f } }) {
+                                 { &sSub, subPct, 0.01f }, { &sBreath, breathPct, 0.01f }, { &sMorph, morphPct, 0.01f } }) {
         sv->reset(sampleRate, 0.03);
         sv->setCurrentAndTargetValue(p->load() * scale);
     }
@@ -240,6 +260,11 @@ void LarynxProcessor::process(juce::AudioBuffer<float>& buffer, bool forceBypass
     sFormant.setTargetValue(formantSt->load());
     sSub.setTargetValue(subPct->load() * 0.01f);
     sBreath.setTargetValue(breathPct->load() * 0.01f);
+    sMorph.setTargetValue(morphPct->load() * 0.01f);
+    const int voice = juce::roundToInt(morphVoiceIdx->load());
+    float morphAmt = 0.0f;
+    // ponytail: morph acts after the M4 blend (so Mix does not scale it); it has its own amount knob.
+    const auto& prof = profiles();
 
     larynx::Controls c;
     std::array<float, kEditBars> user;
@@ -259,6 +284,7 @@ void LarynxProcessor::process(juce::AudioBuffer<float>& buffer, bool forceBypass
     auto shape = [&](const larynx::HarmFrame& in, larynx::HarmFrame& t) {
         if (mode == DSP) {
             larynx::blend(in, t, c, fs);
+            prof.apply(t, voice, morphAmt);
             publish(in, t);
             return;
         }
@@ -267,6 +293,7 @@ void LarynxProcessor::process(juce::AudioBuffer<float>& buffer, bool forceBypass
         if (mode == Live) {
             larynx::NeuralCore::toDeltas(in, netY.data(), netDelta.data());
             larynx::blend(in, t, c, fs, netDelta.data());
+            prof.apply(t, voice, morphAmt);
             publish(in, t, netDelta.data(), c.prior);
         }
     };
@@ -274,6 +301,7 @@ void LarynxProcessor::process(juce::AudioBuffer<float>& buffer, bool forceBypass
     auto shapeStudio = [&](const larynx::HarmFrame& in, larynx::HarmFrame& t) {
         larynx::NeuralCore::toDeltas(in, netY.data(), netDelta.data());
         larynx::blend(in, t, c, fs, netDelta.data());
+        prof.apply(t, voice, morphAmt);
         publish(in, t, netDelta.data(), c.prior);
     };
 
@@ -292,6 +320,7 @@ void LarynxProcessor::process(juce::AudioBuffer<float>& buffer, bool forceBypass
         c = { sPrior.getNextValue() * netRamp.getNextValue(), sMix.getNextValue(), sBright.getNextValue(),
               sAir.getNextValue(), sEvenOdd.getNextValue(), sFormant.getNextValue(), sSub.getNextValue(),
               sBreath.getNextValue(), user.data() };
+        morphAmt = sMorph.getNextValue();
         engine.synth.setSub(c.sub);
         studioEngine.synth.setSub(c.sub);
         const float xin = x[i] * inGain.getNextValue();

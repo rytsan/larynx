@@ -29,9 +29,9 @@ private:
     juce::TooltipWindow tooltips { this };
 
     std::vector<std::unique_ptr<Knob>> knobs;
-    Knob *prior, *mix, *bright, *air, *evenodd, *formant, *sub, *breath, *inTrim, *outTrim;
-    juce::Slider morph { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::NoTextBox }; // P8 placeholder
-    juce::Label morphLabel;
+    Knob *prior, *mix, *bright, *air, *evenodd, *formant, *sub, *breath, *morph, *inTrim, *outTrim;
+    juce::ComboBox morphVoice;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> morphVoiceAttachment;
 
     juce::TextButton modeButtons[3] { juce::TextButton { "DSP" }, juce::TextButton { "LIVE" }, juce::TextButton { "STUDIO" } };
     std::unique_ptr<juce::ParameterAttachment> modeAttachment;

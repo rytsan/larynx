@@ -197,3 +197,26 @@ TEST_CASE("envelope editor: curve survives state roundtrip, undo restores it, an
     for (size_t n = 24000; n < tone.size(); ++n) worst = std::max(worst, std::abs(out[n] - tone[n - L]));
     CHECK(worst > 0.01f);
 }
+
+TEST_CASE("morph: profiles embedded, 0% is identity, 100% reshapes a voiced tone") {
+    juce::ScopedJuceInitialiser_GUI init;
+    REQUIRE(LarynxProcessor::profiles().singers() == 12);
+    std::vector<float> tone(48000);
+    for (size_t n = 0; n < tone.size(); ++n) // /a/-like: H3-H4 strong around 700 Hz at f0 = 220 Hz
+        for (int k = 1; k <= 30; ++k)
+            tone[n] += (k == 3 || k == 4 ? 0.25f : 0.08f / (float) k) * std::sin(2.0f * 3.14159265f * 220.0f * (float) k * (float) n / 48000.0f);
+    LarynxProcessor p;
+    p.prepareToPlay(48000.0, 512);
+    const size_t L = (size_t) p.getLatencySamples();
+    auto worst = [&](const std::vector<float>& out) {
+        float w = 0.0f;
+        for (size_t n = 24000; n < tone.size(); ++n) w = std::max(w, std::abs(out[n] - tone[n - L]));
+        return w;
+    };
+    CHECK(worst(run(p, tone)) < 1e-5f);
+    LarynxProcessor q;
+    setParam(q, ParamID::morph, 100.0f);
+    setParam(q, ParamID::morphVoice, 5.0f);
+    q.prepareToPlay(48000.0, 512);
+    CHECK(worst(run(q, tone)) > 0.01f);
+}

@@ -12,6 +12,7 @@
 #include <memory>
 #include <vector>
 #include "core/engine.h"
+#include "core/blend.h"
 #include "core/features.h"
 #include "core/neuralcore.h"
 
@@ -134,6 +135,29 @@ py::array_t<float> tcnRun(const py::dict& j, py::array_t<float, py::array::c_sty
     return y;
 }
 
+py::tuple vowelOf(const py::dict& d) {
+    // core/blend.h vowel reader per row: (vowel char code or 0, F1, F2)
+    const py::ssize_t n = py::array::ensure(d["f0"]).shape(0);
+    auto f0 = col<float>(d, "f0", n, 0);
+    auto flags = col<std::uint8_t>(d, "flags", n, 0);
+    auto nValid = col<std::uint8_t>(d, "n_valid", n, 0);
+    auto h = col<float>(d, "h", n, larynx::kNumHarmonics);
+    py::array_t<std::uint8_t> v(n);
+    py::array_t<float> f1(n), f2(n);
+    larynx::HarmFrame f {};
+    for (py::ssize_t i = 0; i < n; ++i) {
+        f.f0 = f0.data()[i];
+        f.flags = flags.data()[i];
+        f.nValid = nValid.data()[i];
+        std::copy_n(h.data() + i * larynx::kNumHarmonics, larynx::kNumHarmonics, f.h);
+        float a = 0.0f, b = 0.0f;
+        v.mutable_data()[i] = (std::uint8_t) larynx::vowelOf(f, &a, &b);
+        f1.mutable_data()[i] = a;
+        f2.mutable_data()[i] = b;
+    }
+    return py::make_tuple(v, f1, f2);
+}
+
 } // namespace
 
 PYBIND11_MODULE(pycore, m) {
@@ -141,6 +165,7 @@ PYBIND11_MODULE(pycore, m) {
     m.def("analyze", &analyze, py::arg("x"), py::arg("fs"));
     m.def("net_input", &netInput, py::arg("frames"));
     m.def("tcn_run", &tcnRun, py::arg("weights"), py::arg("x"));
+    m.def("vowel_of", &vowelOf, py::arg("frames"));
     m.attr("NET_CONTRACT") = larynx::kNetContract;
     m.attr("NET_INPUTS") = larynx::kNetInputs;
     m.attr("NET_OUTPUTS") = larynx::kNetOutputs;

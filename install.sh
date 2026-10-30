@@ -76,6 +76,11 @@ mkdir -p ~/.vst3 ~/.clap
 [ -e $ART/CLAP/LARYNX.clap ] && cp -r $ART/CLAP/LARYNX.clap ~/.clap/
 ls -d ~/.vst3/LARYNX.vst3 ~/.clap/LARYNX.clap 2>/dev/null || true
 
+if [ $DATA = 1 ] || [ ! -f plugin/source/neural/profiles.data ]; then
+    step "morph profiles (12 GTSinger singers outside the golden set)"
+    [ -f plugin/source/neural/profiles.data ] || $PY ml/data/build_morph.py
+fi
+
 if [ $DATA = 1 ]; then
     step "corpora → $LARYNX_DATA (VocalSet, VCTK, LibriTTS-R, PTDB-TUG; JVS-MuSiC is manual)"
     ml/data/download_corpora.sh
