@@ -7,12 +7,12 @@
 #   ./install.sh --all           same as --train
 #
 # Options: --no-apt (skip apt; deps must already be there), --hours N (per-corpus cap for shards,
-# default 10), --steps N (training steps, default 20000), --jobs N (shard workers).
+# default 10), --steps N (training steps, default 60000), --jobs N (shard workers).
 # Env: LARYNX_DATA (default data/) for corpora, shards and runs.
 set -euo pipefail
 cd "$(dirname "$0")"
 
-APT=1 DATA=0 TRAIN=0 HOURS=10 STEPS=20000 JOBS=""
+APT=1 DATA=0 TRAIN=0 HOURS=10 STEPS=60000 JOBS=""
 while [ $# -gt 0 ]; do
     case $1 in
         --no-apt) APT=0 ;;

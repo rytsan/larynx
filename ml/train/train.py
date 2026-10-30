@@ -151,7 +151,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--name", required=True)
     ap.add_argument("--delay", type=int, default=0)
-    ap.add_argument("--steps", type=int, default=20000)
+    ap.add_argument("--steps", type=int, default=60000)
     ap.add_argument("--batch", type=int, default=64)
     ap.add_argument("--length", type=int, default=256, help="frames per example")
     ap.add_argument("--channels", type=int, default=96)
