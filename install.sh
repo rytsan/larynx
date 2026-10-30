@@ -96,6 +96,7 @@ if [ $TRAIN = 1 ]; then
         mkdir -p plugin/source/neural
         $PY ml/train/model.py "$LARYNX_DATA/runs/$name/best.pt" "plugin/source/neural/model_$name.json"
         $PY ml/train/check_export.py "plugin/source/neural/model_$name.json" "$LARYNX_DATA/runs/$name/best.pt"
+        $PY ml/eval/eval_golden.py "$LARYNX_DATA/runs/$name/best.pt" | tail -1
     done
     step "rebuild with embedded weights"
     cmake -B build >/dev/null && cmake --build build && ctest --test-dir build --output-on-failure
