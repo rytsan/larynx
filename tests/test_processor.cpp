@@ -220,3 +220,31 @@ TEST_CASE("morph: profiles embedded, 0% is identity, 100% reshapes a voiced tone
     q.prepareToPlay(48000.0, 512);
     CHECK(worst(run(q, tone)) > 0.01f);
 }
+
+TEST_CASE("edge cases: unsupported rates bypass, DC, clipping, silence and noise stay finite") {
+    juce::ScopedJuceInitialiser_GUI init;
+    for (double sr : { 88200.0, 96000.0 }) {
+        LarynxProcessor p;
+        p.prepareToPlay(sr, 512);
+        CHECK_FALSE(p.rateSupported());
+        const auto in = noise(30000);
+        CHECK(delayedCopy(in, run(p, in), p.getLatencySamples()));
+    }
+    LarynxProcessor p;
+    setParam(p, ParamID::bright, 12.0f);
+    setParam(p, ParamID::sub, 100.0f);
+    setParam(p, ParamID::breath, 100.0f);
+    p.prepareToPlay(48000.0, 512);
+    std::vector<std::vector<float>> inputs = { std::vector<float>(48000, 0.0f), std::vector<float>(48000, 0.5f), noise(48000) };
+    std::vector<float> clipped(48000);
+    for (size_t n = 0; n < clipped.size(); ++n) clipped[n] = std::clamp(4.0f * std::sin(2.0f * 3.14159265f * 150.0f * (float) n / 48000.0f), -1.0f, 1.0f);
+    inputs.push_back(clipped);
+    for (auto& in : inputs) {
+        const auto out = run(p, in);
+        bool finite = true;
+        float peak = 0.0f;
+        for (float v : out) finite &= std::isfinite(v), peak = std::max(peak, std::abs(v));
+        CHECK(finite);
+        CHECK(peak < 100.0f); // +12 dB/oct on a clipped square reaches ~+30 dBFS (each harmonic capped at 0 dBFS)
+    }
+}

@@ -113,7 +113,9 @@ void LarynxEditor::timerCallback() {
 
     const double sr = proc.getSampleRate();
     const double latencyMs = sr > 0 ? 1000.0 * proc.getLatencySamples() / sr : 0.0;
-    status = juce::String(latencyMs, 1) + " ms   CPU " + juce::String(proc.load.getLoadAsPercentage(), 1) + "%";
+    status = proc.rateSupported()
+                 ? juce::String(latencyMs, 1) + " ms   CPU " + juce::String(proc.load.getLoadAsPercentage(), 1) + "%"
+                 : juce::String(sr / 1000.0, 1) + " kHz: bypass (44.1/48k)";
     repaint(header.withTrimmedLeft(W / 2));
     repaint(footer);
 }

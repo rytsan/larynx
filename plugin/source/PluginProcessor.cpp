@@ -200,6 +200,7 @@ void LarynxProcessor::handleAsyncUpdate() {
 
 void LarynxProcessor::configure(double sampleRate) {
     fs = sampleRate;
+    supported = sampleRate == 44100.0 || sampleRate == 48000.0;
     const int m = juce::roundToInt(apvts.getRawParameterValue(ParamID::mode)->load());
     runMode = m == DSP || !nets[m - 1].loaded() ? DSP : m;
     engine.prepare(sampleRate);
@@ -324,6 +325,13 @@ void LarynxProcessor::process(juce::AudioBuffer<float>& buffer, bool forceBypass
         engine.synth.setSub(c.sub);
         studioEngine.synth.setSub(c.sub);
         const float xin = x[i] * inGain.getNextValue();
+        if (!supported) { // NFR4 path at any rate: delayed input, no crash, no DSP (UI warns)
+            x[i] = d;
+            outGain.getNextValue();
+            pOut = std::max(pOut, std::abs(x[i]));
+            sOut += x[i] * x[i];
+            continue;
+        }
         float wet = engine.process(xin, shape);
         if (mode == Studio) wet = studioEngine.process(studioIn.process(xin), shapeStudio);
         wet *= outGain.getNextValue();

@@ -32,6 +32,8 @@ public:
     bool loadModel(Mode m, const larynx::TcnWeights& w); // call before prepareToPlay (or the mode switch)
     bool hasModel(Mode m) const { return m != DSP && nets[m - 1].loaded(); }
     Mode runningMode() const { return (Mode) runMode.load(); } // effective mode (DSP when weights missing)
+    // §2.7: only 44.1/48 kHz are processed; other rates pass the input through the latency delay.
+    bool rateSupported() const { return supported.load(); }
 
     void prepareToPlay(double sampleRate, int maxBlockSize) override;
     void releaseResources() override {}
@@ -126,6 +128,7 @@ private:
     larynx::Engine studioEngine;
     larynx::DelayLine studioIn;
     std::atomic<int> runMode { DSP };
+    std::atomic<bool> supported { true };
     juce::SmoothedValue<float> netRamp; // 0→1 over 300 ms after a mode switch (RF warm-up)
     std::array<float, larynx::kNetInputs> netX {};
     std::array<float, larynx::kNetOutputs> netY {};
