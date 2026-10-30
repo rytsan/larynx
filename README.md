@@ -138,7 +138,10 @@ plugin/
     ui/                 LookAndFeel do rack, gráfico de harmônicos
 tests/                  Catch2
 tools/bench_plugin/     larynx_analyze (analyzer → CSV + RTF), larynx_render (caminho DSP → WAV + RTF/LSD)
-ml/data/                pipeline de dados (fetch_golden.py, credits.md)
+ml/pycore/              pybind11 sobre core/ (analyze, net_input) + gate de equivalência
+ml/data/                fetch_golden.py, download_corpora.sh, build_shards.py (QC + análise C++), masks.py
+ml/eval/                metrics.py (deriva F1/F2), baseline.py (regressão de declínio + LSD)
+ml/train/               model.py (TCN causal + export JSON), train.py (Live D=0 / Studio D=16)
 golden/                 manifest + hashes do golden set
 planner.md              plano do projeto
 ```
