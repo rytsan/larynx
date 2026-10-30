@@ -14,7 +14,8 @@ inline constexpr auto mode = "mode", prior = "prior", mix = "mix", bright = "bri
 
 class LarynxProcessor : public juce::AudioProcessor,
                         private juce::AudioProcessorValueTreeState::Listener,
-                        private juce::AsyncUpdater {
+                        private juce::AsyncUpdater,
+                        private juce::ValueTree::Listener {
 public:
     LarynxProcessor();
 
@@ -48,16 +49,24 @@ public:
     bool producesMidi() const override { return false; }
     double getTailLengthSeconds() const override { return 0.0; }
 
-    int getNumPrograms() override { return 1; }
-    int getCurrentProgram() override { return 0; }
-    void setCurrentProgram(int) override {}
-    const juce::String getProgramName(int) override { return {}; }
+    // Factory presets (§12); selecting one sets the parameters, the editor curve is left alone.
+    int getNumPrograms() override;
+    int getCurrentProgram() override { return program; }
+    void setCurrentProgram(int) override;
+    const juce::String getProgramName(int) override;
     void changeProgramName(int, const juce::String&) override {}
 
     void getStateInformation(juce::MemoryBlock&) override;
     void setStateInformation(const void*, int) override;
 
+    juce::UndoManager undo;
     juce::AudioProcessorValueTreeState apvts;
+
+    // Envelope editor (§12): per-harmonic dB offsets H1..H40 drawn on the graph, applied with the manual
+    // operators. Stored in the state tree (property "editor", undoable); mirrored for the audio thread.
+    static constexpr int kEditBars = 40;
+    void setEditorCurve(const std::array<float, kEditBars>& db, bool undoable = true);
+    std::array<float, kEditBars> editorCurve() const;
 
     // Meters for the UI (written by audio thread, read by UI timer).
     std::atomic<float> inPeak { 0.0f }, outPeak { 0.0f };
@@ -67,7 +76,7 @@ public:
     // Latest analysed/shaped frame for the graph: audio thread fills slot[1 - published] and flips.
     // ponytail: a reader slower than one hop (5 ms) can see a torn frame — harmless for a display.
     struct GraphFrame {
-        std::array<float, 40> in {}, out {};
+        std::array<float, 40> in {}, out {}, net {}; // net: input + Prior·network delta (floor = none)
         float f0 = 0.0f, f1 = 0.0f, f2 = 0.0f;
         char vowel = 0;
     };
@@ -79,6 +88,9 @@ private:
     void configure(double sampleRate); // latency, delays, engines, network state for the current mode
     void parameterChanged(const juce::String& id, float) override;
     void handleAsyncUpdate() override;
+    void valueTreePropertyChanged(juce::ValueTree&, const juce::Identifier& id) override {
+        if (id == juce::Identifier("editor")) syncEditorFromState(); // undo/redo land here
+    }
 
     std::atomic<float>* inDb = nullptr;
     std::atomic<float>* outDb = nullptr;
@@ -97,6 +109,9 @@ private:
     // M4 controls, smoothed per sample and read once per hop (§8: automation without zipper).
     juce::SmoothedValue<float> sPrior, sMix, sBright, sAir, sEvenOdd, sFormant, sSub, sBreath;
     double fs = 0.0;
+    int program = 0;
+    std::array<std::atomic<float>, kEditBars> editDb {};
+    void syncEditorFromState();
 
     // M3 (§10/§11). Live: network on the current frame. Studio: the network sees frame t and predicts
     // t-D, so a second engine runs D hops behind on delayed input and resynthesises with that output.

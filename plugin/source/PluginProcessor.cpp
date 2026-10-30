@@ -43,7 +43,7 @@ LarynxProcessor::LarynxProcessor()
     : AudioProcessor(BusesProperties()
                          .withInput("Input", juce::AudioChannelSet::mono(), true)
                          .withOutput("Output", juce::AudioChannelSet::mono(), true)),
-      apvts(*this, nullptr, "LARYNX", createLayout()) {
+      apvts(*this, &undo, "LARYNX", createLayout()) {
     inDb = apvts.getRawParameterValue(ParamID::in);
     outDb = apvts.getRawParameterValue(ParamID::out);
     bypassOn = apvts.getRawParameterValue(ParamID::bypass);
@@ -66,11 +66,68 @@ LarynxProcessor::LarynxProcessor()
     }
 #endif
     apvts.addParameterListener(ParamID::mode, this);
+    apvts.state.addListener(this);
 }
 
 LarynxProcessor::~LarynxProcessor() {
+    apvts.state.removeListener(this);
     apvts.removeParameterListener(ParamID::mode, this);
     cancelPendingUpdate();
+}
+
+namespace {
+
+struct Preset {
+    const char* name;
+    std::initializer_list<std::pair<const char*, float>> values; // unlisted parameters go to default
+};
+
+const Preset presets[] = {
+    { "Pass Through", { { ParamID::prior, 0.0f } } },
+    { "Studio Restore", { { ParamID::mode, 2.0f }, { ParamID::prior, 80.0f } } },
+    { "Telefone → Estúdio", { { ParamID::mode, 1.0f }, { ParamID::prior, 100.0f }, { ParamID::air, 4.0f }, { ParamID::bright, 1.5f } } },
+    { "Growl suave", { { ParamID::evenodd, -0.4f }, { ParamID::sub, 25.0f }, { ParamID::bright, -1.0f } } },
+    { "Sopro etéreo", { { ParamID::prior, 50.0f }, { ParamID::breath, 70.0f }, { ParamID::air, 6.0f }, { ParamID::bright, 1.0f } } },
+    // ponytail: no phase detune yet ("detune leve de fase" of §12): sub + slight parity/formant shift only.
+    { "Duplo virtual", { { ParamID::sub, 15.0f }, { ParamID::evenodd, 0.15f }, { ParamID::formant, 0.5f } } },
+};
+
+} // namespace
+
+int LarynxProcessor::getNumPrograms() { return (int) std::size(presets); }
+
+const juce::String LarynxProcessor::getProgramName(int i) {
+    return juce::isPositiveAndBelow(i, getNumPrograms()) ? juce::String::fromUTF8(presets[i].name) : juce::String();
+}
+
+void LarynxProcessor::setCurrentProgram(int i) {
+    if (!juce::isPositiveAndBelow(i, getNumPrograms())) return;
+    program = i;
+    for (auto* p : getParameters())
+        if (auto* r = dynamic_cast<juce::RangedAudioParameter*>(p); r && r->getParameterID() != ParamID::bypass) {
+            float v = r->convertFrom0to1(r->getDefaultValue());
+            for (auto& [id, value] : presets[i].values)
+                if (r->getParameterID() == id) v = value;
+            r->setValueNotifyingHost(r->convertTo0to1(v));
+        }
+}
+
+void LarynxProcessor::setEditorCurve(const std::array<float, kEditBars>& db, bool undoable) {
+    juce::StringArray parts;
+    for (float v : db) parts.add(juce::String(v, 2));
+    apvts.state.setProperty("editor", parts.joinIntoString(" "), undoable ? &undo : nullptr);
+    syncEditorFromState();
+}
+
+std::array<float, LarynxProcessor::kEditBars> LarynxProcessor::editorCurve() const {
+    std::array<float, kEditBars> out {};
+    for (size_t i = 0; i < out.size(); ++i) out[i] = editDb[i].load();
+    return out;
+}
+
+void LarynxProcessor::syncEditorFromState() {
+    const auto parts = juce::StringArray::fromTokens(apvts.state.getProperty("editor").toString(), " ", "");
+    for (int i = 0; i < kEditBars; ++i) editDb[(size_t) i] = i < parts.size() ? parts[i].getFloatValue() : 0.0f;
 }
 
 bool LarynxProcessor::parseModel(const juce::String& json, larynx::TcnWeights& w) {
@@ -185,10 +242,14 @@ void LarynxProcessor::process(juce::AudioBuffer<float>& buffer, bool forceBypass
     sBreath.setTargetValue(breathPct->load() * 0.01f);
 
     larynx::Controls c;
+    std::array<float, kEditBars> user;
+    for (size_t i = 0; i < user.size(); ++i) user[i] = editDb[i].load(std::memory_order_relaxed);
     const int mode = runMode.load();
-    auto publish = [&](const larynx::HarmFrame& in, const larynx::HarmFrame& t) {
+    auto publish = [&](const larynx::HarmFrame& in, const larynx::HarmFrame& t, const float* net = nullptr, float prior = 0.0f) {
         auto& g = graphSlot[1 - graphPublished.load(std::memory_order_relaxed)];
         std::copy_n(in.h, g.in.size(), g.in.begin());
+        for (size_t i = 0; i < g.net.size(); ++i) // ghost: what the network alone asks for
+            g.net[i] = net && (int) i < in.nValid ? std::clamp(in.h[i] + prior * net[i], larynx::kFloorDb, 0.0f) : larynx::kFloorDb;
         std::copy_n(t.h, g.out.size(), g.out.begin());
         g.f0 = (in.flags & larynx::kVoiced) ? in.f0 : 0.0f;
         g.vowel = larynx::vowelOf(t, &g.f1, &g.f2);
@@ -206,14 +267,14 @@ void LarynxProcessor::process(juce::AudioBuffer<float>& buffer, bool forceBypass
         if (mode == Live) {
             larynx::NeuralCore::toDeltas(in, netY.data(), netDelta.data());
             larynx::blend(in, t, c, fs, netDelta.data());
-            publish(in, t);
+            publish(in, t, netDelta.data(), c.prior);
         }
     };
     // Studio engine: input delayed by D hops, so its frame now is the frame netY describes.
     auto shapeStudio = [&](const larynx::HarmFrame& in, larynx::HarmFrame& t) {
         larynx::NeuralCore::toDeltas(in, netY.data(), netDelta.data());
         larynx::blend(in, t, c, fs, netDelta.data());
-        publish(in, t);
+        publish(in, t, netDelta.data(), c.prior);
     };
 
     auto* x = buffer.getWritePointer(0);
@@ -230,7 +291,7 @@ void LarynxProcessor::process(juce::AudioBuffer<float>& buffer, bool forceBypass
         const float b = bypassFade.getNextValue();
         c = { sPrior.getNextValue() * netRamp.getNextValue(), sMix.getNextValue(), sBright.getNextValue(),
               sAir.getNextValue(), sEvenOdd.getNextValue(), sFormant.getNextValue(), sSub.getNextValue(),
-              sBreath.getNextValue() };
+              sBreath.getNextValue(), user.data() };
         engine.synth.setSub(c.sub);
         studioEngine.synth.setSub(c.sub);
         const float xin = x[i] * inGain.getNextValue();
@@ -266,8 +327,12 @@ void LarynxProcessor::getStateInformation(juce::MemoryBlock& dest) {
 }
 
 void LarynxProcessor::setStateInformation(const void* data, int size) {
-    if (auto xml = getXmlFromBinary(data, size); xml && xml->hasTagName(apvts.state.getType()))
+    if (auto xml = getXmlFromBinary(data, size); xml && xml->hasTagName(apvts.state.getType())) {
+        apvts.state.removeListener(this);
         apvts.replaceState(juce::ValueTree::fromXml(*xml));
+        apvts.state.addListener(this);
+    }
+    syncEditorFromState();
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new LarynxProcessor(); }

@@ -56,11 +56,15 @@ LarynxEditor::LarynxEditor(LarynxProcessor& p) : AudioProcessorEditor(p), proc(p
         const int idx = proc.graphPublished.load(std::memory_order_acquire);
         if (idx == lastGraph && seenGraph) return false;
         const auto& f = proc.graphSlot[idx];
-        d.in = f.in, d.out = f.out, d.f0 = f.f0, d.f1 = f.f1, d.f2 = f.f2, d.vowel = f.vowel;
+        d.in = f.in, d.out = f.out, d.net = f.net, d.f0 = f.f0, d.f1 = f.f1, d.f2 = f.f2, d.vowel = f.vowel;
         lastGraph = idx, seenGraph = true;
         return true;
     };
+    graph.getCurve = [this] { return proc.editorCurve(); };
+    graph.setCurve = [this](const larynx::ui::HarmGraph::Curve& c) { proc.setEditorCurve(c); };
+    graph.beginEdit = [this] { proc.undo.beginNewTransaction(); };
     addAndMakeVisible(graph);
+    setWantsKeyboardFocus(true);
     setSize(W, H);
     startTimerHz(30);
 }
@@ -81,6 +85,14 @@ LarynxEditor::Knob& LarynxEditor::addKnob(const char* paramId, const char* text)
     addAndMakeVisible(k.slider);
     addAndMakeVisible(k.label);
     return k;
+}
+
+bool LarynxEditor::keyPressed(const juce::KeyPress& k) {
+    const auto mods = juce::ModifierKeys::commandModifier;
+    if (k == juce::KeyPress('z', mods, 0)) return proc.undo.undo();
+    if (k == juce::KeyPress('z', mods | juce::ModifierKeys::shiftModifier, 0) || k == juce::KeyPress('y', mods, 0))
+        return proc.undo.redo();
+    return false;
 }
 
 void LarynxEditor::setMode(int index) {

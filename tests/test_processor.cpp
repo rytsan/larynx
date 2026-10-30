@@ -155,3 +155,45 @@ TEST_CASE("Prior = 0 with Brightness +6 changes a voiced tone (M4 order, P4 gate
     for (size_t n = 24000; n < tone.size(); ++n) worst = std::max(worst, std::abs(flat[n] - tone[n - L]));
     CHECK(worst < 1e-5f); // and Prior = 0 with timbre at 0 is still the identity
 }
+
+TEST_CASE("factory presets set parameters, unlisted ones back to default") {
+    juce::ScopedJuceInitialiser_GUI init;
+    LarynxProcessor p;
+    REQUIRE(p.getNumPrograms() == 6);
+    setParam(p, ParamID::formant, 3.0f);
+    p.setCurrentProgram(4); // Sopro etéreo
+    REQUIRE(p.getProgramName(4) == "Sopro etéreo");
+    CHECK(p.apvts.getRawParameterValue(ParamID::breath)->load() == 70.0f);
+    CHECK(p.apvts.getRawParameterValue(ParamID::formant)->load() == 0.0f);
+    p.setCurrentProgram(0);
+    CHECK(p.apvts.getRawParameterValue(ParamID::prior)->load() == 0.0f);
+    CHECK(p.apvts.getRawParameterValue(ParamID::breath)->load() == 0.0f);
+}
+
+TEST_CASE("envelope editor: curve survives state roundtrip, undo restores it, and it shapes the sound") {
+    juce::ScopedJuceInitialiser_GUI init;
+    LarynxProcessor p;
+    std::array<float, LarynxProcessor::kEditBars> c {};
+    c[2] = 6.0f;
+    p.undo.beginNewTransaction();
+    p.setEditorCurve(c);
+    juce::MemoryBlock mb;
+    p.getStateInformation(mb);
+    LarynxProcessor q;
+    q.setStateInformation(mb.getData(), (int) mb.getSize());
+    CHECK(q.editorCurve()[2] == 6.0f);
+    p.undo.undo();
+    CHECK(p.editorCurve()[2] == 0.0f);
+    p.undo.redo();
+    CHECK(p.editorCurve()[2] == 6.0f);
+
+    std::vector<float> tone(48000);
+    for (size_t n = 0; n < tone.size(); ++n)
+        for (int k = 1; k <= 8; ++k) tone[n] += 0.2f / (float) k * std::sin(2.0f * 3.14159265f * 220.0f * (float) k * (float) n / 48000.0f);
+    p.prepareToPlay(48000.0, 512);
+    const auto out = run(p, tone);
+    const size_t L = (size_t) p.getLatencySamples();
+    float worst = 0.0f;
+    for (size_t n = 24000; n < tone.size(); ++n) worst = std::max(worst, std::abs(out[n] - tone[n - L]));
+    CHECK(worst > 0.01f);
+}

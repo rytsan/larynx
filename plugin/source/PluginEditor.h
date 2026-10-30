@@ -10,6 +10,7 @@ public:
 
     void paint(juce::Graphics&) override;
     void resized() override;
+    bool keyPressed(const juce::KeyPress&) override; // Ctrl+Z / Ctrl+Shift+Z: editor curve and parameters
 
 private:
     struct Knob {

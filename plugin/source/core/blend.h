@@ -19,7 +19,10 @@ struct Controls {
     float formant = 0.0f; // semitones, envelope reindexing (F0 untouched)
     float sub = 0.0f;     // 0..1, M5: handled by Synth::setSub (not an envelope operator)
     float breath = 0.0f;  // 0..1, M5: up to +kBreathDb on the noise bands of voiced frames, more on open vowels
+    const float* user = nullptr; // envelope editor: kUserBars dB offsets on H1.., or nullptr
 };
+
+constexpr int kUserBars = 40;
 
 constexpr float kEvenOddDb = 6.0f;
 constexpr float kAirHz = 8000.0f;
@@ -67,6 +70,7 @@ inline void blend(const HarmFrame& in, HarmFrame& t, const Controls& c, double f
         float g = c.bright * std::log2((float) n);
         if (n > 1) g += (n % 2 == 0 ? 1.0f : -1.0f) * c.evenodd * kEvenOddDb;
         g += c.air * airWeight((float) n * in.f0);
+        if (c.user && i < kUserBars) g += c.user[i];
         t.h[i] += g;
     }
     if (std::abs(c.air) > 1e-6f)
