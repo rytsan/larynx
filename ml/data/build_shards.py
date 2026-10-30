@@ -5,8 +5,9 @@ qc_spectral.py: one pass reads the clip, runs QC and the C++ analysis, writes on
     .venv/bin/python ml/data/build_shards.py vocalset vctk libritts_r ptdb jvs_music [--data data] [--jobs 8] [--max-hours 10]
 
 Per clip (resampled to 48 kHz, loudness-normalized to -20 LUFS):
-  QC   reject on clipping, HNR < 12 dB, inharmonicity, RT60 > 0.5 s, jitter/shimmer too high
-       (pathological) or too low ("dead" synthetic voice).
+  QC   reject on clipping, HNR < 12 dB, inharmonicity, jitter/shimmer too high (pathological) or
+       too low ("dead" synthetic voice); RT60 only with --max-rt60 (blind estimate, see rt60()).
+       The scripted corpora are documented dry studio recordings.
        Corpora missing from data/ are skipped with a warning.
   out  data/shards/<corpus>/<speaker>/<clip>.npz with the target analysis (clean) and, when an audio
        mask was drawn, the input analysis of the corrupted audio (masks.py).
@@ -106,8 +107,9 @@ def inharmonicity(fr):
 def rt60(x, fs):
     """Blind RT60 from the fastest energy fall: 10 ms envelope (30 ms smoothing), drop over the next
     100 ms at every frame; reverb bounds how fast sound can die, so RT60 ≈ 60 dB · 0.1 s / the 99th
-    percentile drop. ponytail: crude (no Schroeder integration; a noisy floor caps the drop and reads
-    as reverb) — separates a dry studio from a room, not 0.3 s from 0.4 s."""
+    percentile drop. ponytail: crude — legato singing without pauses reads as reverb (VocalSet scales
+    0.5-0.9 s), so it is informational unless --max-rt60 is set. Synthetic rooms: 0.3 → 0.35, 0.6 → 0.5,
+    1.0 → 0.6, 2.0 → 0.7."""
     hop, w = fs // 100, 10
     p = np.add.reduceat(x.astype(np.float64) ** 2, np.arange(0, len(x) - hop, hop)) / hop
     e = 10 * np.log10(np.convolve(p, np.ones(3) / 3, mode="same") + 1e-12)
@@ -125,6 +127,9 @@ def praat_qc(x, fs):
     return float(np.nan_to_num(jit, nan=1.0)), float(np.nan_to_num(shim, nan=1.0))
 
 
+MAX_RT60 = 0.0  # 0 = off; set by --max-rt60
+
+
 def reject_reason(peak, hnr, inharm, reverb, jit, shim):
     if peak >= 0.999:
         return "clipping"
@@ -132,7 +137,7 @@ def reject_reason(peak, hnr, inharm, reverb, jit, shim):
         return "hnr"
     if inharm > 0.1:  # speech glides reach ~0.085 on the golden set
         return "inharmonic"
-    if reverb > 0.5:
+    if MAX_RT60 and reverb > MAX_RT60:
         return "rt60"
     if jit > 0.03 or shim > 0.2:  # pathological voice or tracking failure
         return "jitter_shimmer"
@@ -194,8 +199,11 @@ def main():
     ap.add_argument("corpora", nargs="+", choices=CORPORA)
     ap.add_argument("--data", type=Path, default=REPO / "data")
     ap.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2) - 2))
+    ap.add_argument("--max-rt60", type=float, default=0, help="reject clips with blind RT60 above this (s); 0 = off")
     ap.add_argument("--max-hours", type=float, default=0, help="per corpus, random subsample by clip (0 = all)")
     a = ap.parse_args()
+    global MAX_RT60
+    MAX_RT60 = a.max_rt60
 
     out_dir = a.data / "shards"
     man_path = out_dir / "manifest.csv"
@@ -208,7 +216,7 @@ def main():
     for corpus in a.corpora:
         pattern, speaker_of = CORPORA[corpus]
         root = a.data / corpus
-        files = sorted(root.glob(pattern))
+        files = sorted(f for f in root.glob(pattern) if not f.name.startswith("._") and "__MACOSX" not in f.parts)
         if not files:
             print(f"warning: {corpus}: no files match {root}/{pattern} — skipped (ml/data/download_corpora.sh)")
             continue
