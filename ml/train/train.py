@@ -35,10 +35,11 @@ from model import TCN  # noqa: E402
 NH = pycore.NET_HARMONICS  # 40
 FORMANT_BANDS = ((250.0, 900.0), (850.0, 2500.0))
 FORMANT_W, FORMANT_TAU = 0.1, 3.0  # weight in the loss; softmax temperature in dB
+GAIN_DB = 24.0  # input gain augmentation: the golden set alone spans -34..-10 LUFS around the -20 LUFS shards
 BAND_W = np.concatenate([np.full(8, 2.0), np.full(32, 1.0), np.full(20, 0.8), np.full(20, 0.5), np.full(8, 0.5)])
 
 
-def load(data, splits):
+def load(data, splits, skip_masks=()):
     clips = {s: [] for s in splits}
     with open(data / "shards/manifest.csv") as f:
         rows = [r for r in csv.DictReader(f) if int(r["kept"]) and r["split"] in splits]
@@ -47,7 +48,8 @@ def load(data, splits):
             sys.exit("shards from different core versions: rebuild with build_shards.py")
         z = np.load(r["path"])
         t = {k[2:]: z[k] for k in z.files if k.startswith("t_")}
-        i = {k[2:]: z[k] for k in z.files if k.startswith("i_")} or t
+        i = {k[2:]: z[k] for k in z.files if k.startswith("i_")} if r["audio_mask"] not in skip_masks else {}
+        i = i or t
         clips[r["split"]].append({"t": t, "i": i, "bw": float(z["bw_hz"]), "speaker": f"{r['corpus']}/{r['speaker']}"})
     return clips
 
@@ -63,8 +65,8 @@ def example(clip, s, length, rng, train):
         cond["f0"], cond["flags"] = masks.conditioning_noise(i["f0"], i["flags"], pycore.VOICED, rng)
     x = pycore.net_input(cond)
     rms = x[:, 50] * 100 + FLOOR
-    if train:  # input gain ±12 dB: only the rms_db channel moves, everything else is relative
-        x[:, 50] = (np.clip(rms + rng.uniform(-12, 12), FLOOR, 0) - FLOOR) / 100
+    if train:  # input gain ±GAIN_DB: only the rms_db channel moves, everything else is relative
+        x[:, 50] = (np.clip(rms + rng.uniform(-GAIN_DB, GAIN_DB), FLOOR, 0) - FLOOR) / 100
 
     h_t, n_t = t["h"].astype(np.float32), t["noise"].astype(np.float32)
     y = np.concatenate([h_t[:, :NH] - i["h"][:, :NH], h_t[:, NH:] - rms[:, None], n_t - i["noise"]], axis=1)
@@ -156,10 +158,12 @@ def main():
     ap.add_argument("--lr", type=float, default=3e-4)
     ap.add_argument("--val-every", type=int, default=1000)
     ap.add_argument("--data", type=Path, default=REPO / "data")
+    ap.add_argument("--skip-audio-mask", nargs="*", default=["softclip"], choices=["softclip", "lowpass"],
+                    help="train these clips on their clean analysis (input = target); softclip taught the net to darken loud clean voices (golden grave_baixo_es -11 dB on intact H20-40)")
     a = ap.parse_args()
 
     dev = "cuda" if torch.cuda.is_available() else "cpu"
-    clips = load(a.data, ("train", "val"))
+    clips = load(a.data, ("train", "val"), a.skip_audio_mask)
     print({s: len(c) for s, c in clips.items()}, flush=True)
     model = TCN(channels=a.channels).to(dev)
     print(f"{sum(p.numel() for p in model.parameters())} params, RF {model.receptive_field()} frames", flush=True)
