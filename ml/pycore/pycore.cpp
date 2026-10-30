@@ -4,12 +4,16 @@
 // f0, confidence, flags, n_valid (n,), h, hz (n, 80), noise (n, 8). Same frames as larynx_render.
 // net_input: the 51-channel network input of core/features.h for each row of such a dict
 // (masks edit h/noise/flags in Python first).
+// tcn_run: core/neuralcore over a (T, 51) input with weights as exported by ml/train/model.py
+// (the json.load()ed dict) → (T, 88). Export equivalence test (§9.6).
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
 #include <memory>
 #include <vector>
 #include "core/engine.h"
 #include "core/features.h"
+#include "core/neuralcore.h"
 
 namespace py = pybind11;
 
@@ -85,12 +89,58 @@ py::array_t<float> netInput(const py::dict& d) {
     return out;
 }
 
+std::vector<float> flat(const py::handle& o) {
+    std::vector<float> v;
+    if (py::isinstance<py::list>(o)) {
+        for (auto e : o.cast<py::list>()) {
+            if (py::isinstance<py::list>(e)) {
+                auto sub = flat(e);
+                v.insert(v.end(), sub.begin(), sub.end());
+            } else {
+                v.push_back(e.cast<float>());
+            }
+        }
+    } else {
+        v.push_back(o.cast<float>());
+    }
+    return v;
+}
+
+larynx::TcnWeights weightsFrom(const py::dict& j) {
+    larynx::TcnWeights w;
+    w.channels = j["n_channels"].cast<int>();
+    w.kernel = j["kernel"].cast<int>();
+    w.delay = j["D"].cast<int>();
+    w.dilations = j["dilations"].cast<std::vector<int>>();
+    for (auto l : j["layers"].cast<py::list>()) {
+        auto d = l.cast<py::dict>();
+        const auto name = d["name"].cast<std::string>();
+        auto W = flat(d["w"]), B = flat(d["b"]);
+        if (name == "in") w.inW = W, w.inB = B;
+        else if (name == "out") w.outW = W, w.outB = B;
+        else w.convW.push_back(W), w.convB.push_back(B);
+    }
+    return w;
+}
+
+py::array_t<float> tcnRun(const py::dict& j, py::array_t<float, py::array::c_style | py::array::forcecast> x) {
+    if (j["contract"].cast<int>() != larynx::kNetContract) throw std::invalid_argument("network contract mismatch");
+    if (x.ndim() != 2 || x.shape(1) != larynx::kNetInputs) throw std::invalid_argument("x must be (T, 51)");
+    larynx::NeuralCore nc;
+    if (!nc.load(weightsFrom(j))) throw std::invalid_argument("inconsistent weight shapes");
+    const py::ssize_t T = x.shape(0);
+    py::array_t<float> y({T, (py::ssize_t) larynx::kNetOutputs});
+    for (py::ssize_t t = 0; t < T; ++t) nc.step(x.data() + t * larynx::kNetInputs, y.mutable_data() + t * larynx::kNetOutputs);
+    return y;
+}
+
 } // namespace
 
 PYBIND11_MODULE(pycore, m) {
     m.doc() = "LARYNX core (analyzer + skeleton) for the ML pipeline";
     m.def("analyze", &analyze, py::arg("x"), py::arg("fs"));
     m.def("net_input", &netInput, py::arg("frames"));
+    m.def("tcn_run", &tcnRun, py::arg("weights"), py::arg("x"));
     m.attr("NET_CONTRACT") = larynx::kNetContract;
     m.attr("NET_INPUTS") = larynx::kNetInputs;
     m.attr("NET_OUTPUTS") = larynx::kNetOutputs;

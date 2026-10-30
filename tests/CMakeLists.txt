@@ -4,8 +4,8 @@ FetchContent_Declare(Catch2
     GIT_SHALLOW TRUE)
 FetchContent_MakeAvailable(Catch2)
 
-add_executable(larynx_tests test_processor.cpp test_analyzer.cpp test_engine.cpp test_blend.cpp)
-set_source_files_properties(test_blend.cpp PROPERTIES COMPILE_OPTIONS -Wno-float-equal)
+add_executable(larynx_tests test_processor.cpp test_analyzer.cpp test_engine.cpp test_blend.cpp test_neural.cpp)
+set_source_files_properties(test_blend.cpp test_neural.cpp PROPERTIES COMPILE_OPTIONS -Wno-float-equal)
 
 # Reuse the plugin's shared-code static lib (JUCE modules already compiled into it).
 target_include_directories(larynx_tests PRIVATE $<TARGET_PROPERTY:Larynx,INCLUDE_DIRECTORIES>)

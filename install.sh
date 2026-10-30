@@ -90,7 +90,11 @@ if [ $TRAIN = 1 ]; then
         $PY ml/train/train.py --name "$name" --delay $D --steps "$STEPS"
         mkdir -p plugin/source/neural
         $PY ml/train/model.py "$LARYNX_DATA/runs/$name/best.pt" "plugin/source/neural/model_$name.json"
+        $PY ml/train/check_export.py "plugin/source/neural/model_$name.json" "$LARYNX_DATA/runs/$name/best.pt"
     done
+    step "rebuild with embedded weights"
+    cmake -B build >/dev/null && cmake --build build && ctest --test-dir build --output-on-failure
+    cp -r $ART/VST3/LARYNX.vst3 ~/.vst3/ && cp -r $ART/CLAP/LARYNX.clap ~/.clap/
 fi
 
 step "done"

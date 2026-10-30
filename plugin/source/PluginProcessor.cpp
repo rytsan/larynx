@@ -1,5 +1,8 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#if LARYNX_MODELS
+#include <BinaryData.h>
+#endif
 
 namespace {
 
@@ -50,6 +53,89 @@ LarynxProcessor::LarynxProcessor()
     airDb = apvts.getRawParameterValue(ParamID::air);
     evenOdd = apvts.getRawParameterValue(ParamID::evenodd);
     formantSt = apvts.getRawParameterValue(ParamID::formant);
+
+#if LARYNX_MODELS
+    for (auto [m, name] : { std::pair { Live, "model_live_json" }, { Studio, "model_studio_json" } }) {
+        int size = 0;
+        larynx::TcnWeights w;
+        if (const char* data = BinaryData::getNamedResource(name, size);
+            data && parseModel(juce::String::fromUTF8(data, size), w))
+            loadModel(m, w);
+    }
+#endif
+    apvts.addParameterListener(ParamID::mode, this);
+}
+
+LarynxProcessor::~LarynxProcessor() {
+    apvts.removeParameterListener(ParamID::mode, this);
+    cancelPendingUpdate();
+}
+
+bool LarynxProcessor::parseModel(const juce::String& json, larynx::TcnWeights& w) {
+    const auto v = juce::JSON::parse(json);
+    if (!v.isObject() || (int) v["contract"] != larynx::kNetContract || (int) v["inputs"] != larynx::kNetInputs
+        || (int) v["outputs"] != larynx::kNetOutputs)
+        return false; // other I/O contract: refuse, DSP fallback (§9.6)
+    std::function<void(const juce::var&, std::vector<float>&)> flat = [&](const juce::var& a, std::vector<float>& out) {
+        if (auto* arr = a.getArray())
+            for (auto& e : *arr) flat(e, out);
+        else
+            out.push_back((float) (double) a);
+    };
+    w = {};
+    w.channels = v["n_channels"];
+    w.kernel = v["kernel"];
+    w.delay = v["D"];
+    if (auto* d = v["dilations"].getArray())
+        for (auto& e : *d) w.dilations.push_back((int) e);
+    if (auto* layers = v["layers"].getArray())
+        for (auto& l : *layers) {
+            std::vector<float> W, B;
+            flat(l["w"], W);
+            flat(l["b"], B);
+            const auto name = l["name"].toString();
+            if (name == "in") w.inW = std::move(W), w.inB = std::move(B);
+            else if (name == "out") w.outW = std::move(W), w.outB = std::move(B);
+            else w.convW.push_back(std::move(W)), w.convB.push_back(std::move(B));
+        }
+    return larynx::NeuralCore().load(w);
+}
+
+bool LarynxProcessor::loadModel(Mode m, const larynx::TcnWeights& w) {
+    jassert(m != DSP);
+    return nets[m - 1].load(w);
+}
+
+void LarynxProcessor::parameterChanged(const juce::String&, float) { triggerAsyncUpdate(); }
+
+void LarynxProcessor::handleAsyncUpdate() {
+    if (fs <= 0.0) return; // not prepared yet: prepareToPlay picks the mode up
+    // Mode changes latency (PDC): reconfigure with the audio callback held, then tell the host.
+    // ponytail: a short silent gap at the switch instead of the 30 ms prior ramp-down; hosts only
+    // re-apply PDC on the next stop/start anyway (§2.6).
+    suspendProcessing(true);
+    configure(fs);
+    suspendProcessing(false);
+    updateHostDisplay(ChangeDetails().withLatencyChanged(true));
+}
+
+void LarynxProcessor::configure(double sampleRate) {
+    fs = sampleRate;
+    const int m = juce::roundToInt(apvts.getRawParameterValue(ParamID::mode)->load());
+    runMode = m == DSP || !nets[m - 1].loaded() ? DSP : m;
+    engine.prepare(sampleRate);
+    studioEngine.prepare(sampleRate);
+    const int extra = runMode == Studio ? nets[1].delay() * engine.skeleton.hop() : 0;
+    studioIn.resize((size_t) extra);
+    const int latency = latencyFor(sampleRate) + extra;
+    setLatencySamples(latency);
+    delay.resize((size_t) latency);
+    jassert(engine.latency() == latencyFor(sampleRate));
+    for (auto& n : nets)
+        if (n.loaded()) n.reset();
+    netRamp.reset(sampleRate, 0.3);
+    netRamp.setCurrentAndTargetValue(0.0f);
+    netRamp.setTargetValue(1.0f);
 }
 
 bool LarynxProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const {
@@ -59,11 +145,7 @@ bool LarynxProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const {
 
 void LarynxProcessor::prepareToPlay(double sampleRate, int maxBlockSize) {
     load.reset(sampleRate, maxBlockSize);
-    const int latency = latencyFor(sampleRate);
-    setLatencySamples(latency);
-    delay.resize((size_t) latency);
-    engine.prepare(sampleRate);
-    jassert(engine.latency() == latency);
+    configure(sampleRate);
 
     inGain.reset(sampleRate, 0.03); // §5: 30 ms smoothing
     outGain.reset(sampleRate, 0.03);
@@ -72,7 +154,6 @@ void LarynxProcessor::prepareToPlay(double sampleRate, int maxBlockSize) {
     bypassFade.reset(sampleRate, 0.01); // NFR4: 10 ms bypass crossfade
     bypassFade.setCurrentAndTargetValue(bypassOn->load() > 0.5f ? 1.0f : 0.0f);
 
-    fs = sampleRate;
     for (auto [sv, p, scale] : { std::tuple { &sPrior, priorPct, 0.01f }, { &sMix, mixPct, 0.01f }, { &sBright, brightDb, 1.0f },
                                  { &sAir, airDb, 1.0f }, { &sEvenOdd, evenOdd, 1.0f }, { &sFormant, formantSt, 1.0f } }) {
         sv->reset(sampleRate, 0.03);
@@ -99,14 +180,35 @@ void LarynxProcessor::process(juce::AudioBuffer<float>& buffer, bool forceBypass
     sFormant.setTargetValue(formantSt->load());
 
     larynx::Controls c;
-    auto shape = [&](const larynx::HarmFrame& in, larynx::HarmFrame& t) {
-        larynx::blend(in, t, c, fs); // ponytail: no neural delta until P6
+    const int mode = runMode.load();
+    auto publish = [&](const larynx::HarmFrame& in, const larynx::HarmFrame& t) {
         auto& g = graphSlot[1 - graphPublished.load(std::memory_order_relaxed)];
         std::copy_n(in.h, g.in.size(), g.in.begin());
         std::copy_n(t.h, g.out.size(), g.out.begin());
         g.f0 = (in.flags & larynx::kVoiced) ? in.f0 : 0.0f;
         g.vowel = larynx::vowelOf(t, &g.f1, &g.f2);
         graphPublished.store(1 - graphPublished.load(std::memory_order_relaxed), std::memory_order_release);
+    };
+    // Main engine: DSP and Live resynthesise here; in Studio it only feeds the network.
+    auto shape = [&](const larynx::HarmFrame& in, larynx::HarmFrame& t) {
+        if (mode == DSP) {
+            larynx::blend(in, t, c, fs);
+            publish(in, t);
+            return;
+        }
+        larynx::netInput(in, netX.data());
+        nets[mode - 1].step(netX.data(), netY.data());
+        if (mode == Live) {
+            larynx::NeuralCore::toDeltas(in, netY.data(), netDelta.data());
+            larynx::blend(in, t, c, fs, netDelta.data());
+            publish(in, t);
+        }
+    };
+    // Studio engine: input delayed by D hops, so its frame now is the frame netY describes.
+    auto shapeStudio = [&](const larynx::HarmFrame& in, larynx::HarmFrame& t) {
+        larynx::NeuralCore::toDeltas(in, netY.data(), netDelta.data());
+        larynx::blend(in, t, c, fs, netDelta.data());
+        publish(in, t);
     };
 
     auto* x = buffer.getWritePointer(0);
@@ -115,16 +217,18 @@ void LarynxProcessor::process(juce::AudioBuffer<float>& buffer, bool forceBypass
     // Processed path: in trim → engine (latency = window) → out trim. Bypass is the input through a
     // delay of the same length, so toggling never moves audio in time (NFR4). The engine keeps
     // running while bypassed, so un-bypassing needs no warm-up.
-    // ponytail: Live/Studio run the DSP path (manual controls only) until the neural core exists (P6/P7).
     for (int i = 0; i < buffer.getNumSamples(); ++i) {
         pIn = std::max(pIn, std::abs(x[i]));
         sIn += x[i] * x[i];
         const float d = delay.process(x[i]);
         const bool fading = bypassFade.isSmoothing();
         const float b = bypassFade.getNextValue();
-        c = { sPrior.getNextValue(), sMix.getNextValue(), sBright.getNextValue(),
+        c = { sPrior.getNextValue() * netRamp.getNextValue(), sMix.getNextValue(), sBright.getNextValue(),
               sAir.getNextValue(), sEvenOdd.getNextValue(), sFormant.getNextValue() };
-        const float wet = engine.process(x[i] * inGain.getNextValue(), shape) * outGain.getNextValue();
+        const float xin = x[i] * inGain.getNextValue();
+        float wet = engine.process(xin, shape);
+        if (mode == Studio) wet = studioEngine.process(studioIn.process(xin), shapeStudio);
+        wet *= outGain.getNextValue();
         // Outside the fade, copy exactly: d + (wet - d) * 0 is not guaranteed bit-exact.
         x[i] = fading ? wet + (d - wet) * b : (b > 0.5f ? d : wet);
         pOut = std::max(pOut, std::abs(x[i]));

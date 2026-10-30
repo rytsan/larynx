@@ -4,6 +4,7 @@
 #include "core/blend.h"
 #include "core/delay_line.h"
 #include "core/engine.h"
+#include "core/neuralcore.h"
 
 namespace ParamID {
 inline constexpr auto mode = "mode", prior = "prior", mix = "mix", bright = "bright",
@@ -11,12 +12,24 @@ inline constexpr auto mode = "mode", prior = "prior", mix = "mix", bright = "bri
     in = "in", out = "out", bypass = "bypass";
 }
 
-class LarynxProcessor : public juce::AudioProcessor {
+class LarynxProcessor : public juce::AudioProcessor,
+                        private juce::AudioProcessorValueTreeState::Listener,
+                        private juce::AsyncUpdater {
 public:
     LarynxProcessor();
 
-    // Algorithmic latency (§2.5): 1024 samples @48k, same 21.3 ms at any rate (§2.7).
+    ~LarynxProcessor() override;
+
+    // Algorithmic latency (§2.5): 1024 samples @48k, same 21.3 ms at any rate (§2.7). Studio adds D hops.
     static int latencyFor(double sampleRate) { return juce::roundToInt(1024.0 * sampleRate / 48000.0); }
+
+    enum Mode { DSP = 0, Live = 1, Studio = 2 };
+    // Network weights from exported JSON (ml/train/model.py). The plugin loads the embedded
+    // model_live/model_studio.json at construction; a mode without weights runs the DSP path.
+    static bool parseModel(const juce::String& json, larynx::TcnWeights& out);
+    bool loadModel(Mode m, const larynx::TcnWeights& w); // call before prepareToPlay (or the mode switch)
+    bool hasModel(Mode m) const { return m != DSP && nets[m - 1].loaded(); }
+    Mode runningMode() const { return (Mode) runMode.load(); } // effective mode (DSP when weights missing)
 
     void prepareToPlay(double sampleRate, int maxBlockSize) override;
     void releaseResources() override {}
@@ -63,6 +76,9 @@ public:
 
 private:
     void process(juce::AudioBuffer<float>&, bool forceBypass);
+    void configure(double sampleRate); // latency, delays, engines, network state for the current mode
+    void parameterChanged(const juce::String& id, float) override;
+    void handleAsyncUpdate() override;
 
     std::atomic<float>* inDb = nullptr;
     std::atomic<float>* outDb = nullptr;
@@ -78,7 +94,18 @@ private:
     larynx::Engine engine; // analyzer → skeleton → blend (M4) → synth
     // M4 controls, smoothed per sample and read once per hop (§8: automation without zipper).
     juce::SmoothedValue<float> sPrior, sMix, sBright, sAir, sEvenOdd, sFormant;
-    double fs = 48000.0;
+    double fs = 0.0;
+
+    // M3 (§10/§11). Live: network on the current frame. Studio: the network sees frame t and predicts
+    // t-D, so a second engine runs D hops behind on delayed input and resynthesises with that output.
+    larynx::NeuralCore nets[2]; // [Live, Studio]
+    larynx::Engine studioEngine;
+    larynx::DelayLine studioIn;
+    std::atomic<int> runMode { DSP };
+    juce::SmoothedValue<float> netRamp; // 0→1 over 300 ms after a mode switch (RF warm-up)
+    std::array<float, larynx::kNetInputs> netX {};
+    std::array<float, larynx::kNetOutputs> netY {};
+    std::array<float, larynx::kNetOutputs> netDelta {};
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> inGain { 1.0f }, outGain { 1.0f };
     juce::SmoothedValue<float> bypassFade { 0.0f }; // 0 = processed, 1 = bypassed
 

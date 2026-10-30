@@ -1,5 +1,5 @@
 # core/: pure DSP, no JUCE. Shared by the plugin, tests and tools/bench_plugin.
-add_library(larynx_core STATIC source/core/analyzer.cpp source/core/skeleton.cpp source/core/synth.cpp)
+add_library(larynx_core STATIC source/core/analyzer.cpp source/core/skeleton.cpp source/core/synth.cpp source/core/neuralcore.cpp)
 target_include_directories(larynx_core PUBLIC source)
 target_compile_features(larynx_core PUBLIC cxx_std_20)
 set_target_properties(larynx_core PROPERTIES POSITION_INDEPENDENT_CODE ON) # linked into ml/pycore
@@ -20,6 +20,15 @@ juce_add_plugin(Larynx
 clap_juce_extensions_plugin(TARGET Larynx
     CLAP_ID "com.ricardo.larynx"
     CLAP_FEATURES audio-effect mono)
+
+# Network weights exported by ml/train/model.py (install.sh --train). Without them Live/Studio run DSP.
+file(GLOB LARYNX_MODEL_FILES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/source/neural/model_*.json)
+if(LARYNX_MODEL_FILES)
+    juce_add_binary_data(LarynxModels SOURCES ${LARYNX_MODEL_FILES})
+    set_target_properties(LarynxModels PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    target_link_libraries(Larynx PRIVATE LarynxModels)
+    target_compile_definitions(Larynx PRIVATE LARYNX_MODELS=1)
+endif()
 
 target_sources(Larynx PRIVATE
     source/PluginProcessor.cpp

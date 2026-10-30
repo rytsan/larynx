@@ -2,8 +2,8 @@
 // M4 (§8): target envelope from the input frame, in the order of §2.1:
 //   (1) neural delta scaled by Prior (P6; absent until then), (2) manual operators — may cut below the
 //   input, (3) spectral Mix in dB. All controls at 0 and Mix = 100% leave target == in bit for bit, so
-//   the P3 identity path is untouched. Only harmonics present in the input (> floor) are shaped: the
-//   operators never conjure partials from nothing. No JUCE (core/ rule), no allocation.
+//   the P3 identity path is untouched. The network may create absent harmonics; the manual operators
+//   only shape harmonics present after it (> floor), never conjure partials from nothing. No JUCE (core/ rule), no allocation.
 #include <algorithm>
 #include <cmath>
 #include "harm_frame.h"
@@ -49,7 +49,7 @@ inline void blend(const HarmFrame& in, HarmFrame& t, const Controls& c, double f
         const float a = std::exp2(c.formant / 12.0f);
         HarmFrame src = t;
         for (int i = 0; i < nv; ++i) {
-            if (in.h[i] <= kFloorDb) continue;
+            if (src.h[i] <= kFloorDb) continue;
             const float pos = std::clamp((float) (i + 1) / a - 1.0f, 0.0f, (float) (nv - 1));
             const int k = std::min((int) pos, nv - 2 < 0 ? 0 : nv - 2);
             const float fr = nv > 1 ? pos - (float) k : 0.0f;
@@ -57,7 +57,7 @@ inline void blend(const HarmFrame& in, HarmFrame& t, const Controls& c, double f
         }
     }
     for (int i = 0; i < nv; ++i) {
-        if (in.h[i] <= kFloorDb) continue;
+        if (t.h[i] <= kFloorDb) continue;
         const int n = i + 1;
         float g = c.bright * std::log2((float) n);
         if (n > 1) g += (n % 2 == 0 ? 1.0f : -1.0f) * c.evenodd * kEvenOddDb;
@@ -66,14 +66,13 @@ inline void blend(const HarmFrame& in, HarmFrame& t, const Controls& c, double f
     }
     if (std::abs(c.air) > 1e-6f)
         for (int b = 0; b < kNumNoiseBands; ++b)
-            if (in.noise[b] > kFloorDb) t.noise[b] += c.air * airWeight(noiseBandHz(b, fs));
+            if (t.noise[b] > kFloorDb) t.noise[b] += c.air * airWeight(noiseBandHz(b, fs));
 
     if (c.mix < 1.0f) {
         for (int i = 0; i < nv; ++i) t.h[i] = in.h[i] + c.mix * (t.h[i] - in.h[i]);
         for (int b = 0; b < kNumNoiseBands; ++b) t.noise[b] = in.noise[b] + c.mix * (t.noise[b] - in.noise[b]);
     }
-    for (int i = 0; i < nv; ++i)
-        if (in.h[i] > kFloorDb) t.h[i] = std::clamp(t.h[i], kFloorDb, 0.0f);
+    for (int i = 0; i < nv; ++i) t.h[i] = std::clamp(t.h[i], kFloorDb, 0.0f);
     for (auto& v : t.noise) v = std::clamp(v, kFloorDb, 0.0f);
 }
 

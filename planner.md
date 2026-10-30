@@ -419,6 +419,8 @@ Objetivo: o DLSS vocal funcional, em tempo real, dentro do plugin.
 - Denormals: juce::ScopedNoDenormals (multiplataforma: compatível com x86 SSE e ARM Apple Silicon); afinar se preciso com buffer de 512
 - Benchmark: `tools/bench_plugin` — RTF total do chain (analyzer→neural→synth) em CPU de laptop (alvo: i5-8250U classe)
 
+**Estado (2026-10-30):** inferência própria em `core/neuralcore` (sem RTNeural: conv causal com histórico circular por camada, pesos reorganizados por tap), carregada de `plugin/source/neural/model_{live,studio}.json` embutidos via BinaryData; contrato de I/O conferido, arquivo inválido → DSP. `ml/train/check_export.py`: C++ vs PyTorch 4e-7 (gate §9.6). Live e Studio no processor: Studio roda um segundo motor com entrada atrasada D hops (latência 1024 + D·hop, bypass com o mesmo atraso; testado a 44.1/48k), troca de modo reconfigura com o callback suspenso e rampa Prior 0→1 em 300 ms. RTF (teste `[rtf]`, TCN 96 ch × 7, nesta máquina): Live 0.12, Studio 0.16. Falta: pesos treinados, medir em laptop, sessão de 1 h, A/B nos 12 cantores GTSinger.
+
 **Gate**
 - [ ] RTF total < 0.2 sem GPU; latência total ≤ 25 ms
 - [ ] Sessão 1 h sem dropout; automação de prior durante neural ativa sem glitch

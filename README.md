@@ -15,7 +15,8 @@ Projeto pessoal, não comercial. O plano completo (requisitos, arquitetura, pass
 | 3 | Síntese identidade | identidade/LSD/roundtrip/RTF verdes; faltam ABX e escuta com máscara |
 | 4 | Controles harmônicos manuais | Brightness/Air/Even-Odd/Formant/Mix (`core/blend.h`), gráfico real + leitor de vogal, VU; falta uso real no DAW |
 | 5 | Dados e treino | golden congelado; pycore, shards, QC, baseline, TCN, treino e export rodando ponta a ponta; corpora baixando |
-| 6–9 | Neural Live, Studio, camada criativa, fechamento | — |
+| 6–7 | Neural Live / Studio | inferência C++ (`core/neuralcore`, = PyTorch em 4e-7), Live e Studio (motor atrasado D hops, PDC) no plugin, RTF 0.12/0.16 com a TCN completa; faltam pesos treinados |
+| 8–9 | Camada criativa, fechamento | — |
 
 O plugin reporta a latência final (1024 amostras @48 kHz ≈ 21.3 ms). O caminho processado já é analyzer → skeleton → synth
 (máscara de ganho sobre a STFT original + aditivo para harmônicos ausentes) com todos os ganhos = 1: sai a entrada atrasada,
