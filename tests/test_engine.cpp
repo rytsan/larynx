@@ -141,3 +141,30 @@ TEST_CASE("additive: absent H15 injected at -30 dB is re-extracted at -30 +- 0.2
         CHECK(std::abs(f.h[0] - -20.0f) < 0.1f); // existing harmonics pass through the identity mask
     }
 }
+
+#include "core/features.h"
+
+TEST_CASE("net input: gain invariant, taper, normalization", "[features]") {
+    HarmFrame f {};
+    f.f0 = 220.0f;
+    f.flags = larynx::kVoiced;
+    f.nValid = 60;
+    for (int i = 0; i < larynx::kNumHarmonics; ++i) f.h[i] = -20.0f - 1.5f * (float) i;
+    for (auto& v : f.noise) v = -70.0f;
+    float a[larynx::kNetInputs], b[larynx::kNetInputs];
+    larynx::netInput(f, a);
+    for (auto& v : f.h) v -= 12.0f;
+    for (auto& v : f.noise) v -= 12.0f;
+    larynx::netInput(f, b);
+    for (int i = 0; i < 50; ++i) REQUIRE(std::abs(a[i] - b[i]) < 1e-5f); // relative to rms_db: trim does not move it
+    REQUIRE(std::abs((a[50] - b[50]) * 100.0f - 12.0f) < 1e-3f);
+    REQUIRE(a[0] < 1.0f);
+    REQUIRE(a[0] > 0.94f); // H1 −5.3 dB under rms_db (geometric sum of the −1.5 dB/harmonic slope)
+    REQUIRE(std::abs((a[35] - a[36]) * 100.0f - (1.5f - larynx::netTaperDb(36))) < 1e-3f);
+    REQUIRE(larynx::netTaperDb(39) < -20.0f);
+    REQUIRE(std::abs(a[48] - std::log2(220.0f / 60.0f) / std::log2(20.0f)) < 1e-5f);
+    f.flags = 0;
+    larynx::netInput(f, b);
+    REQUIRE(b[48] <= 0.0f);
+    REQUIRE(b[49] <= 0.0f);
+}

@@ -4,3 +4,5 @@ golden/8_vozes/**/*.wav
 *.part
 .venv/
 __pycache__/
+/data/
+/data.log

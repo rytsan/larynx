@@ -1,12 +1,15 @@
 // pybind11 bridge over plugin/source/core — the only source of training features (§9.3).
-//   import pycore; f = pycore.analyze(x_float32, fs)
-// Runs the plugin's Engine sample by sample (identity shape) and returns one row per hop:
+//   import pycore; f = pycore.analyze(x_float32, fs); x = pycore.net_input(f)
+// analyze: runs the plugin's Engine sample by sample (identity shape) and returns one row per hop:
 // f0, confidence, flags, n_valid (n,), h, hz (n, 80), noise (n, 8). Same frames as larynx_render.
+// net_input: the 51-channel network input of core/features.h for each row of such a dict
+// (masks edit h/noise/flags in Python first).
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 #include <memory>
 #include <vector>
 #include "core/engine.h"
+#include "core/features.h"
 
 namespace py = pybind11;
 
@@ -53,11 +56,45 @@ py::dict analyze(py::array_t<float, py::array::c_style | py::array::forcecast> x
     return d;
 }
 
+template <class T>
+py::array_t<T, py::array::c_style | py::array::forcecast> col(const py::dict& d, const char* k, py::ssize_t n, py::ssize_t w) {
+    auto a = py::array_t<T, py::array::c_style | py::array::forcecast>::ensure(d[k]);
+    if (!a || a.shape(0) != n || (w ? a.ndim() != 2 || a.shape(1) != w : a.ndim() != 1))
+        throw std::invalid_argument(std::string("bad shape for ") + k);
+    return a;
+}
+
+py::array_t<float> netInput(const py::dict& d) {
+    const py::ssize_t n = py::array::ensure(d["f0"]).shape(0);
+    auto f0 = col<float>(d, "f0", n, 0);
+    auto flags = col<std::uint8_t>(d, "flags", n, 0);
+    auto nValid = col<std::uint8_t>(d, "n_valid", n, 0);
+    auto h = col<float>(d, "h", n, larynx::kNumHarmonics);
+    auto noise = col<float>(d, "noise", n, larynx::kNumNoiseBands);
+    py::array_t<float> out({n, (py::ssize_t) larynx::kNetInputs});
+    float* o = out.mutable_data();
+    larynx::HarmFrame f {};
+    for (py::ssize_t i = 0; i < n; ++i) {
+        f.f0 = f0.data()[i];
+        f.flags = flags.data()[i];
+        f.nValid = nValid.data()[i];
+        std::copy_n(h.data() + i * larynx::kNumHarmonics, larynx::kNumHarmonics, f.h);
+        std::copy_n(noise.data() + i * larynx::kNumNoiseBands, larynx::kNumNoiseBands, f.noise);
+        larynx::netInput(f, o + i * larynx::kNetInputs);
+    }
+    return out;
+}
+
 } // namespace
 
 PYBIND11_MODULE(pycore, m) {
     m.doc() = "LARYNX core (analyzer + skeleton) for the ML pipeline";
     m.def("analyze", &analyze, py::arg("x"), py::arg("fs"));
+    m.def("net_input", &netInput, py::arg("frames"));
+    m.attr("NET_CONTRACT") = larynx::kNetContract;
+    m.attr("NET_INPUTS") = larynx::kNetInputs;
+    m.attr("NET_OUTPUTS") = larynx::kNetOutputs;
+    m.attr("NET_HARMONICS") = larynx::kNetHarmonics;
     m.attr("VOICED") = (int) larynx::kVoiced;
     m.attr("SIBILANT") = (int) larynx::kSibilant;
     m.attr("TRANSIENT") = (int) larynx::kTransient;
