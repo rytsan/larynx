@@ -64,9 +64,13 @@ def core_hash():
     return h.hexdigest()[:16]
 
 
-def split_of(corpus, speaker):
-    b = zlib.crc32(f"{corpus}/{speaker}".encode()) % 10
-    return "train" if b < 8 else "val" if b == 8 else "test"
+def splits(corpus, speakers):
+    """Speaker → split, deterministic per corpus: speakers ordered by sha256 of corpus/speaker, the
+    first 10% (at least 1) val, the next 10% (at least 1) test, the rest train. Every corpus with
+    3+ speakers lands in all three splits (a crc32 % 10 bucket put all 20 VocalSet singers in train)."""
+    order = sorted(set(speakers), key=lambda s: hashlib.sha256(f"{corpus}/{s}".encode()).hexdigest())
+    n = max(1, round(len(order) / 10)) if len(order) >= 3 else 0
+    return {s: "val" if i < n else "test" if i < 2 * n else "train" for i, s in enumerate(order)}
 
 
 def bandwidth(x, fs, sr):
@@ -151,8 +155,8 @@ def frames_dict(fr):
 
 
 def process(job):
-    corpus, speaker, src, dst, seed = job
-    row = {"path": str(dst), "corpus": corpus, "speaker": speaker, "split": split_of(corpus, speaker),
+    corpus, speaker, split, src, dst, seed = job
+    row = {"path": str(dst), "corpus": corpus, "speaker": speaker, "split": split,
            "kept": 0, "reason": "", "audio_mask": "", "frames": 0, "sha256": "", "core_hash": CORE_HASH}
     try:
         x, sr = sf.read(src, dtype="float32", always_2d=True)
@@ -220,6 +224,7 @@ def main():
         if not files:
             print(f"warning: {corpus}: no files match {root}/{pattern} — skipped (ml/data/download_corpora.sh)")
             continue
+        split = splits(corpus, [speaker_of(f.relative_to(root)) for f in files])
         rng = np.random.default_rng(zlib.crc32(corpus.encode()))
         rng.shuffle(files)
         budget = a.max_hours * 3600 if a.max_hours else float("inf")
@@ -229,10 +234,10 @@ def main():
             budget -= sf.info(src).duration if a.max_hours else 0
             rel = src.relative_to(root)
             dst = out_dir / corpus / speaker_of(rel) / (rel.stem + ".npz")
-            jobs.append((corpus, speaker_of(rel), src, dst, zlib.crc32(str(rel).encode())))
+            jobs.append((corpus, speaker_of(rel), split[speaker_of(rel)], src, dst, zlib.crc32(str(rel).encode())))
 
-    rows = [old[str(j[3])] for j in jobs if str(j[3]) in old]
-    todo = [j for j in jobs if str(j[3]) not in old]
+    rows = [old[str(j[4])] | {"split": j[2]} for j in jobs if str(j[4]) in old]
+    todo = [j for j in jobs if str(j[4]) not in old]
     print(f"{len(jobs)} clips, {len(todo)} to build (core {CORE_HASH})", flush=True)
     with ProcessPoolExecutor(a.jobs) as ex:
         for i, row in enumerate(ex.map(process, todo, chunksize=8)):
