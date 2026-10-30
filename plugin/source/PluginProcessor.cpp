@@ -44,6 +44,12 @@ LarynxProcessor::LarynxProcessor()
     inDb = apvts.getRawParameterValue(ParamID::in);
     outDb = apvts.getRawParameterValue(ParamID::out);
     bypassOn = apvts.getRawParameterValue(ParamID::bypass);
+    priorPct = apvts.getRawParameterValue(ParamID::prior);
+    mixPct = apvts.getRawParameterValue(ParamID::mix);
+    brightDb = apvts.getRawParameterValue(ParamID::bright);
+    airDb = apvts.getRawParameterValue(ParamID::air);
+    evenOdd = apvts.getRawParameterValue(ParamID::evenodd);
+    formantSt = apvts.getRawParameterValue(ParamID::formant);
 }
 
 bool LarynxProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const {
@@ -65,6 +71,13 @@ void LarynxProcessor::prepareToPlay(double sampleRate, int maxBlockSize) {
     outGain.setCurrentAndTargetValue(juce::Decibels::decibelsToGain(outDb->load()));
     bypassFade.reset(sampleRate, 0.01); // NFR4: 10 ms bypass crossfade
     bypassFade.setCurrentAndTargetValue(bypassOn->load() > 0.5f ? 1.0f : 0.0f);
+
+    fs = sampleRate;
+    for (auto [sv, p, scale] : { std::tuple { &sPrior, priorPct, 0.01f }, { &sMix, mixPct, 0.01f }, { &sBright, brightDb, 1.0f },
+                                 { &sAir, airDb, 1.0f }, { &sEvenOdd, evenOdd, 1.0f }, { &sFormant, formantSt, 1.0f } }) {
+        sv->reset(sampleRate, 0.03);
+        sv->setCurrentAndTargetValue(p->load() * scale);
+    }
 }
 
 void LarynxProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) { process(buffer, false); }
@@ -78,23 +91,44 @@ void LarynxProcessor::process(juce::AudioBuffer<float>& buffer, bool forceBypass
     inGain.setTargetValue(juce::Decibels::decibelsToGain(inDb->load()));
     outGain.setTargetValue(juce::Decibels::decibelsToGain(outDb->load()));
     bypassFade.setTargetValue(forceBypass || bypassOn->load() > 0.5f ? 1.0f : 0.0f);
+    sPrior.setTargetValue(priorPct->load() * 0.01f);
+    sMix.setTargetValue(mixPct->load() * 0.01f);
+    sBright.setTargetValue(brightDb->load());
+    sAir.setTargetValue(airDb->load());
+    sEvenOdd.setTargetValue(evenOdd->load());
+    sFormant.setTargetValue(formantSt->load());
+
+    larynx::Controls c;
+    auto shape = [&](const larynx::HarmFrame& in, larynx::HarmFrame& t) {
+        larynx::blend(in, t, c, fs); // ponytail: no neural delta until P6
+        auto& g = graphSlot[1 - graphPublished.load(std::memory_order_relaxed)];
+        std::copy_n(in.h, g.in.size(), g.in.begin());
+        std::copy_n(t.h, g.out.size(), g.out.begin());
+        g.f0 = (in.flags & larynx::kVoiced) ? in.f0 : 0.0f;
+        g.vowel = larynx::vowelOf(t, &g.f1, &g.f2);
+        graphPublished.store(1 - graphPublished.load(std::memory_order_relaxed), std::memory_order_release);
+    };
 
     auto* x = buffer.getWritePointer(0);
-    float pIn = 0.0f, pOut = 0.0f;
+    float pIn = 0.0f, pOut = 0.0f, sIn = 0.0f, sOut = 0.0f;
 
     // Processed path: in trim → engine (latency = window) → out trim. Bypass is the input through a
     // delay of the same length, so toggling never moves audio in time (NFR4). The engine keeps
     // running while bypassed, so un-bypassing needs no warm-up.
-    // ponytail: Live/Studio run the DSP path until the neural core exists (P6/P7).
+    // ponytail: Live/Studio run the DSP path (manual controls only) until the neural core exists (P6/P7).
     for (int i = 0; i < buffer.getNumSamples(); ++i) {
         pIn = std::max(pIn, std::abs(x[i]));
+        sIn += x[i] * x[i];
         const float d = delay.process(x[i]);
         const bool fading = bypassFade.isSmoothing();
         const float b = bypassFade.getNextValue();
-        const float wet = engine.process(x[i] * inGain.getNextValue()) * outGain.getNextValue();
+        c = { sPrior.getNextValue(), sMix.getNextValue(), sBright.getNextValue(),
+              sAir.getNextValue(), sEvenOdd.getNextValue(), sFormant.getNextValue() };
+        const float wet = engine.process(x[i] * inGain.getNextValue(), shape) * outGain.getNextValue();
         // Outside the fade, copy exactly: d + (wet - d) * 0 is not guaranteed bit-exact.
         x[i] = fading ? wet + (d - wet) * b : (b > 0.5f ? d : wet);
         pOut = std::max(pOut, std::abs(x[i]));
+        sOut += x[i] * x[i];
     }
 
     for (int ch = 1; ch < buffer.getNumChannels(); ++ch)
@@ -103,6 +137,9 @@ void LarynxProcessor::process(juce::AudioBuffer<float>& buffer, bool forceBypass
     // UI takes these with exchange(0); keep the max until it does.
     inPeak.store(std::max(inPeak.load(), pIn));
     outPeak.store(std::max(outPeak.load(), pOut));
+    inSq.store(inSq.load() + sIn);
+    outSq.store(outSq.load() + sOut);
+    sqCount.store(sqCount.load() + (float) buffer.getNumSamples());
 }
 
 juce::AudioProcessorParameter* LarynxProcessor::getBypassParameter() const {

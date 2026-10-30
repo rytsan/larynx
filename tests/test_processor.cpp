@@ -128,3 +128,30 @@ TEST_CASE("mode is not automatable") {
     CHECK_FALSE(p.apvts.getParameter(ParamID::mode)->isAutomatable());
     CHECK(p.apvts.getParameter(ParamID::prior)->isAutomatable());
 }
+
+TEST_CASE("Prior = 0 with Brightness +6 changes a voiced tone (M4 order, P4 gate)") {
+    juce::ScopedJuceInitialiser_GUI init;
+    std::vector<float> tone(48000);
+    for (size_t n = 0; n < tone.size(); ++n)
+        for (int k = 1; k <= 20; ++k)
+            tone[n] += 0.3f / (float) k * std::sin(2.0f * 3.14159265f * 220.0f * (float) k * (float) n / 48000.0f);
+    LarynxProcessor p;
+    setParam(p, ParamID::prior, 0.0f);
+    p.prepareToPlay(48000.0, 512);
+    const auto flat = run(p, tone);
+    LarynxProcessor q;
+    setParam(q, ParamID::prior, 0.0f);
+    setParam(q, ParamID::bright, 6.0f);
+    q.prepareToPlay(48000.0, 512);
+    const auto bright = run(q, tone);
+    double diff = 0.0, ref = 0.0;
+    for (size_t n = 24000; n < tone.size(); ++n) {
+        diff += std::pow(bright[n] - flat[n], 2.0);
+        ref += std::pow(flat[n], 2.0);
+    }
+    CHECK(10.0 * std::log10(diff / ref) > -20.0); // clearly audible change
+    const size_t L = (size_t) p.getLatencySamples();
+    float worst = 0.0f;
+    for (size_t n = 24000; n < tone.size(); ++n) worst = std::max(worst, std::abs(flat[n] - tone[n - L]));
+    CHECK(worst < 1e-5f); // and Prior = 0 with timbre at 0 is still the identity
+}

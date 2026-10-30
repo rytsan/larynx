@@ -28,6 +28,7 @@ public:
     }
     int latency() const { return skeleton.win(); }
     const HarmFrame& frame() const { return in_; }
+    const HarmFrame& target() const { return target_; } // last shaped frame (graph)
 
     template <class Shape>
     float process(float x, Shape&& shape) {

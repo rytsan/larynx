@@ -39,8 +39,11 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> bypassAttachment;
 
     larynx::ui::HarmGraph graph;
+    int lastGraph = 0;
+    bool seenGraph = false;
     juce::String status;
     float inLevel = 0.0f, outLevel = 0.0f; // meter display, linear peak with decay
+    float inRms = 0.0f, outRms = 0.0f;     // VU (rms) display
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(LarynxEditor)
 };

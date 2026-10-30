@@ -1,5 +1,7 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
+#include <array>
+#include "core/blend.h"
 #include "core/delay_line.h"
 #include "core/engine.h"
 
@@ -46,7 +48,18 @@ public:
 
     // Meters for the UI (written by audio thread, read by UI timer).
     std::atomic<float> inPeak { 0.0f }, outPeak { 0.0f };
+    std::atomic<float> inSq { 0.0f }, outSq { 0.0f }, sqCount { 0.0f }; // sums of squares for the VU (rms)
     juce::AudioProcessLoadMeasurer load;
+
+    // Latest analysed/shaped frame for the graph: audio thread fills slot[1 - published] and flips.
+    // ponytail: a reader slower than one hop (5 ms) can see a torn frame — harmless for a display.
+    struct GraphFrame {
+        std::array<float, 40> in {}, out {};
+        float f0 = 0.0f, f1 = 0.0f, f2 = 0.0f;
+        char vowel = 0;
+    };
+    GraphFrame graphSlot[2];
+    std::atomic<int> graphPublished { 0 };
 
 private:
     void process(juce::AudioBuffer<float>&, bool forceBypass);
@@ -54,9 +67,18 @@ private:
     std::atomic<float>* inDb = nullptr;
     std::atomic<float>* outDb = nullptr;
     std::atomic<float>* bypassOn = nullptr;
+    std::atomic<float>* priorPct = nullptr;
+    std::atomic<float>* mixPct = nullptr;
+    std::atomic<float>* brightDb = nullptr;
+    std::atomic<float>* airDb = nullptr;
+    std::atomic<float>* evenOdd = nullptr;
+    std::atomic<float>* formantSt = nullptr;
 
     larynx::DelayLine delay;
-    larynx::Engine engine; // P3: identity path (all gains = 1); P4 shapes the target envelope
+    larynx::Engine engine; // analyzer → skeleton → blend (M4) → synth
+    // M4 controls, smoothed per sample and read once per hop (§8: automation without zipper).
+    juce::SmoothedValue<float> sPrior, sMix, sBright, sAir, sEvenOdd, sFormant;
+    double fs = 48000.0;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> inGain { 1.0f }, outGain { 1.0f };
     juce::SmoothedValue<float> bypassFade { 0.0f }; // 0 = processed, 1 = bypassed
 

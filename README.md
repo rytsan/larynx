@@ -13,7 +13,7 @@ Projeto pessoal, não comercial. O plano completo (requisitos, arquitetura, pass
 | 1 | Casca do VST: build, parâmetros, bypass bit-perfect, UI estática | código pronto, testes passando; falta validar em DAW |
 | 2 | Analyzer (F0 / voicing) | código + testes sintéticos; falta validar flags e F0 em voz real |
 | 3 | Síntese identidade | identidade/LSD/roundtrip/RTF verdes; faltam ABX e escuta com máscara |
-| 4 | Controles harmônicos manuais | — |
+| 4 | Controles harmônicos manuais | Brightness/Air/Even-Odd/Formant/Mix (`core/blend.h`), gráfico real + leitor de vogal, VU; falta uso real no DAW |
 | 5 | Dados e treino | golden congelado; pycore, shards, QC, baseline, TCN, treino e export rodando ponta a ponta; corpora baixando |
 | 6–9 | Neural Live, Studio, camada criativa, fechamento | — |
 
@@ -96,11 +96,11 @@ harmônicas (± 0.2 dB), energia das bandas de ruído, máscara (−6 dB no H3) 
 ```bash
 ./build/tools/bench_plugin/larynx_analyze golden/8_vozes/alto_ru/cantado.wav > frames.csv   # RTF no stderr
 ./build/tools/bench_plugin/larynx_render  golden/8_vozes/alto_ru/cantado.wav out.wav        # identidade: erro, LSD, RTF
-./build/tools/bench_plugin/larynx_render  in.wav out.wav --bright 6 --evenodd -6            # máscara ativa (escuta do P3)
+./build/tools/bench_plugin/larynx_render  in.wav out.wav --bright 6 --evenodd -1            # máscara ativa (escuta do P3)
 ```
 
-`out.wav` sai alinhado com a entrada (latência removida), pronto para ABX. `--bright` (dB/oct) e `--evenodd` (dB) são
-operadores provisórios para o gate de escuta do P3; os definitivos entram no M4 (P4).
+`out.wav` sai alinhado com a entrada (latência removida), pronto para ABX. Opções nas unidades dos knobs, mesmo
+`core/blend.h` do plugin: `--bright` (dB/oct), `--air` (dB), `--evenodd` (−1…1 = ±6 dB), `--formant` (st), `--mix` (0…1).
 
 Deriva de vogal (NFR5) usa Praat via parselmouth, num venv local:
 

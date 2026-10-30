@@ -327,11 +327,13 @@ Objetivo: plugin útil sem ML. Os knobs do rack ganham função real.
 - Gráfico real: barras input (apagado) vs. processado (aceso), F0/voicing ao vivo, leitor de vogal (F1/F2 → nearest vowel no mapa a/e/i/o/u)
 - Metering in/out com ballistics VU (peak + rms)
 
+**Estado (2026-10-30):** código pronto — `core/blend.h` (ordem do M4; Even/Odd ±1 = ±6 dB, H1 fixo; Air = shelf smoothstep de 1 oitava centrado em 8 kHz, também nas bandas ERB; Formant interpola o envelope em dB entre harmônicos; operadores só tocam harmônicos presentes no input), controles suavizados 30 ms por amostra e lidos por hop, gráfico com H1–H40 reais (input apagado, processado aceso, corte em contorno), F0 e leitor de vogal (2 maiores picos em 250–2500 Hz), VU rms + linha de pico. `larynx_render` usa o mesmo blend. Testes: identidade bit a bit com tudo em 0, Prior=0+Brightness=+6 altera, Even/Odd, Air, Mix, Formant +12 st, leitor de vogal.
+
 **Gate**
 - [ ] Soa como "EQ harmônico musical" — você usa numa música real por 1 semana
 - [ ] Deriva de vogal < limiar do P3 em todos os knobs nos defaults+±3
 - [ ] Gráfico a 60 fps com dados reais; automação sem zipper
-- [ ] Prior=0 e timbre todo em 0 = bit-identical ao P3; Prior=0 com Brightness=+6 ainda altera o som (teste de regressão da ordem do M4)
+- [x] Prior=0 e timbre todo em 0 = bit-identical ao P3; Prior=0 com Brightness=+6 ainda altera o som (teste de regressão da ordem do M4) — `tests/test_blend.cpp`, `tests/test_processor.cpp`
 
 ## 9. PASSO 5 — Trilha de dados + treino (paralela aos passos 2–4)
 Objetivo: o modelo da rede, com dados suficientes e avaliação honesta.

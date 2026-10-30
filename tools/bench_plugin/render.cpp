@@ -1,8 +1,7 @@
 // Headless DSP-mode render: in.wav → out.wav, latency removed so out lines up with in (for ABX).
-//   larynx_render in.wav out.wav [--bright dB/oct] [--evenodd dB]
+//   larynx_render in.wav out.wav [--bright dB/oct] [--air dB] [--evenodd -1..1] [--formant st] [--mix 0..1]
+// Same M4 blend as the plugin (core/blend.h), parameters in plugin units, Prior irrelevant (no network).
 // Without options it is the P3 identity path: prints max error vs. input and LSD H1–H40.
-// --bright / --evenodd are provisional envelope ops for the P3 "mask active" listening gate;
-// the real operators live in M4 (P4).
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -10,6 +9,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <vector>
+#include "core/blend.h"
 #include "core/engine.h"
 #include "wav.h"
 
@@ -27,13 +27,18 @@ std::vector<larynx::HarmFrame> analyzeAll(const std::vector<float>& x, double fs
 
 int main(int argc, char** argv) {
     if (argc < 3) {
-        std::fprintf(stderr, "usage: %s in.wav out.wav [--bright dB/oct] [--evenodd dB]\n", argv[0]);
+        std::fprintf(stderr, "usage: %s in.wav out.wav [--bright dB/oct] [--air dB] [--evenodd -1..1] [--formant st] [--mix 0..1]\n", argv[0]);
         return 2;
     }
-    float bright = 0.0f, evenodd = 0.0f;
+    larynx::Controls c;
+    c.prior = 0.0f;
     for (int i = 3; i + 1 < argc; i += 2) {
-        if (!std::strcmp(argv[i], "--bright")) bright = std::strtof(argv[i + 1], nullptr);
-        else if (!std::strcmp(argv[i], "--evenodd")) evenodd = std::strtof(argv[i + 1], nullptr);
+        const float v = std::strtof(argv[i + 1], nullptr);
+        if (!std::strcmp(argv[i], "--bright")) c.bright = v;
+        else if (!std::strcmp(argv[i], "--air")) c.air = v;
+        else if (!std::strcmp(argv[i], "--evenodd")) c.evenodd = v;
+        else if (!std::strcmp(argv[i], "--formant")) c.formant = v;
+        else if (!std::strcmp(argv[i], "--mix")) c.mix = v;
         else { std::fprintf(stderr, "unknown option %s\n", argv[i]); return 2; }
     }
     std::vector<float> x;
@@ -46,12 +51,7 @@ int main(int argc, char** argv) {
     larynx::Engine e;
     e.prepare(fs);
     const size_t L = (size_t) e.latency();
-    auto shape = [&](const larynx::HarmFrame& in, larynx::HarmFrame& t) {
-        for (int i = 0; i < in.nValid; ++i) {
-            if (in.h[i] <= larynx::kFloorDb) continue;
-            t.h[i] = std::min(0.0f, in.h[i] + bright * std::log2((float) (i + 1)) + ((i + 1) % 2 == 0 ? evenodd : -evenodd));
-        }
-    };
+    auto shape = [&](const larynx::HarmFrame& in, larynx::HarmFrame& t) { larynx::blend(in, t, c, fs); };
     std::vector<float> y;
     y.reserve(x.size() + L);
     const auto t0 = std::chrono::steady_clock::now();

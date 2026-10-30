@@ -52,6 +52,14 @@ LarynxEditor::LarynxEditor(LarynxProcessor& p) : AudioProcessorEditor(p), proc(p
                                                                                               bypassPedal);
     addAndMakeVisible(bypassPedal);
 
+    graph.poll = [this](larynx::ui::HarmGraph::Data& d) {
+        const int idx = proc.graphPublished.load(std::memory_order_acquire);
+        if (idx == lastGraph && seenGraph) return false;
+        const auto& f = proc.graphSlot[idx];
+        d.in = f.in, d.out = f.out, d.f0 = f.f0, d.f1 = f.f1, d.f2 = f.f2, d.vowel = f.vowel;
+        lastGraph = idx, seenGraph = true;
+        return true;
+    };
     addAndMakeVisible(graph);
     setSize(W, H);
     startTimerHz(30);
@@ -80,10 +88,15 @@ void LarynxEditor::setMode(int index) {
 }
 
 void LarynxEditor::timerCallback() {
-    // Peak meters: instant attack, ~300 ms release.
-    constexpr float release = 0.89f; // per 33 ms tick
+    // Peak: instant attack, ~300 ms release. RMS: VU ballistics (~300 ms integration).
+    constexpr float release = 0.89f, vu = 0.105f; // per 33 ms tick
     inLevel = std::max(proc.inPeak.exchange(0.0f), inLevel * release);
     outLevel = std::max(proc.outPeak.exchange(0.0f), outLevel * release);
+    // ponytail: exchange of three separate atomics can mix two blocks — off by one block of samples.
+    if (const float n = proc.sqCount.exchange(0.0f); n > 0.0f) {
+        inRms += vu * (std::sqrt(proc.inSq.exchange(0.0f) / n) - inRms);
+        outRms += vu * (std::sqrt(proc.outSq.exchange(0.0f) / n) - outRms);
+    }
 
     const double sr = proc.getSampleRate();
     const double latencyMs = sr > 0 ? 1000.0 * proc.getLatencySamples() / sr : 0.0;
@@ -117,16 +130,18 @@ void LarynxEditor::paint(juce::Graphics& g) {
     g.setColour(colour::panel);
     g.fillRoundedRectangle(footer.toFloat(), 6.0f);
 
-    auto meter = [&](juce::Rectangle<int> r, float level) {
+    auto meter = [&](juce::Rectangle<int> r, float peak, float rms) {
         g.setColour(colour::bg);
         g.fillRect(r);
-        const float db = juce::Decibels::gainToDecibels(level, -60.0f);
-        const float frac = juce::jmap(db, -60.0f, 0.0f, 0.0f, 1.0f);
-        g.setColour(db > -1.0f ? juce::Colours::red : lnf.getAccent());
-        g.fillRect(r.toFloat().withTrimmedTop(r.getHeight() * (1.0f - frac)));
+        auto frac = [](float v) { return juce::jmap(juce::Decibels::gainToDecibels(v, -60.0f), -60.0f, 0.0f, 0.0f, 1.0f); };
+        const auto rf = r.toFloat();
+        g.setColour(lnf.getAccent());
+        g.fillRect(rf.withTrimmedTop(rf.getHeight() * (1.0f - frac(rms))));           // VU body
+        g.setColour(juce::Decibels::gainToDecibels(peak) > -1.0f ? juce::Colours::red : colour::text);
+        g.fillRect(rf.getX(), rf.getBottom() - rf.getHeight() * frac(peak) - 1.0f, rf.getWidth(), 2.0f); // peak line
     };
-    meter({ footer.getX() + 84, footer.getY() + 10, 10, footer.getHeight() - 20 }, inLevel);
-    meter({ footer.getRight() - 94, footer.getY() + 10, 10, footer.getHeight() - 20 }, outLevel);
+    meter({ footer.getX() + 84, footer.getY() + 10, 10, footer.getHeight() - 20 }, inLevel, inRms);
+    meter({ footer.getRight() - 94, footer.getY() + 10, 10, footer.getHeight() - 20 }, outLevel, outRms);
 }
 
 void LarynxEditor::resized() {
