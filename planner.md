@@ -402,7 +402,7 @@ Nota sobre a mask "truncar em H40": no plugin real a rede também só recebe H1.
 - Teste de equivalência: mesmo input → saída PyTorch vs. saída RTNeural C++ headless, diff < 1e-4
 
 **Gate**
-- [ ] Vence baseline com folga (LSD −3 dB ou mais) — primeiro treino real (Live, só VocalSet 8.1 h, 20k passos): val (cantores VocalSet fora do treino) 7.84 vs baseline 14.00 dB; **golden (`ml/eval/eval_golden.py`) 8.77 vs 10.60 dB = +1.83 dB ✘**, baixos piores (grave_baixo_es −2.3 dB). Próximo: VCTK + LibriTTS-R + PTDB-TUG (baixando) e varredura
+- [ ] Vence baseline com folga (LSD −3 dB ou mais) — primeiro treino real (Live, só VocalSet 8.1 h, 20k passos): val (cantores VocalSet fora do treino) 7.84 vs baseline 14.00 dB; **golden (`ml/eval/eval_golden.py`) 8.77 vs 10.60 dB = +1.83 dB ✘**, baixos piores (grave_baixo_es −2.3 dB). Studio (D=16, mesmos dados): golden 8.47 vs 10.60 = +2.13 dB ✘. Próximo: VCTK + LibriTTS-R + PTDB-TUG (baixando) e varredura
 - [ ] Preserva vogal e vida nos 8 golden voices (NFR5/6)
 - [ ] ABX próprio no modo Studio: acerto ≤ 65% (original rico vs. restaurado)
 - [x] Export equivalente em C++ validado — `ml/train/check_export.py`: modelo treinado 5.7e-5 vs PyTorch float64 (o próprio float32 do PyTorch erra 1.7e-4)
