@@ -109,12 +109,23 @@ void Synth::render(Skeleton& sk, const HarmFrame& in, const HarmFrame& target) {
         ampCur_[(size_t) i] = on ? (1.0f - mix_[(size_t) i]) * std::max(0.0f, ampOf(target.h[i]) - ampOf(in.h[i])) : 0.0f;
         if (ampPrev_[(size_t) i] > 0.0f || ampCur_[(size_t) i] > 0.0f) active[nActive++] = i;
     }
+    subPrev_ = subCur_;
+    subCur_ = 0.0f;
+    if (subGain_ > 0.0f && target.f0 > 0.0f) {
+        float env = 0.0f;
+        for (int i = 0; i < std::min(4, (int) target.nValid); ++i) env += ampOf(target.h[i]);
+        subCur_ = subGain_ * env / 4.0f;
+    }
     constexpr double twoPi = 2.0 * std::numbers::pi;
     for (int j = 0; j < hop_; ++j) {
         const float t = (float) (j + 1) / (float) hop_;
         phase_ += twoPi * (f0Prev_ + t * (f0Cur_ - f0Prev_)) / fs_;
-        if (phase_ >= twoPi) phase_ -= twoPi;
+        if (phase_ >= 4.0 * twoPi) phase_ -= 4.0 * twoPi; // wrap at 8π: f0/4 (phase/4) stays continuous
         float s = 0.0f;
+        if (subPrev_ > 0.0f || subCur_ > 0.0f) {
+            const float a = subPrev_ + t * (subCur_ - subPrev_);
+            s += a * (float) std::sin(0.5 * phase_) + 0.5f * a * (float) std::sin(0.25 * phase_);
+        }
         for (int a = 0; a < nActive; ++a) {
             const int i = active[a];
             s += (ampPrev_[(size_t) i] + t * (ampCur_[(size_t) i] - ampPrev_[(size_t) i])) * (float) std::sin((i + 1) * phase_);

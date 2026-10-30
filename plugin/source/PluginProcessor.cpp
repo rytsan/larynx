@@ -53,6 +53,8 @@ LarynxProcessor::LarynxProcessor()
     airDb = apvts.getRawParameterValue(ParamID::air);
     evenOdd = apvts.getRawParameterValue(ParamID::evenodd);
     formantSt = apvts.getRawParameterValue(ParamID::formant);
+    subPct = apvts.getRawParameterValue(ParamID::sub);
+    breathPct = apvts.getRawParameterValue(ParamID::breath);
 
 #if LARYNX_MODELS
     for (auto [m, name] : { std::pair { Live, "model_live_json" }, { Studio, "model_studio_json" } }) {
@@ -155,7 +157,8 @@ void LarynxProcessor::prepareToPlay(double sampleRate, int maxBlockSize) {
     bypassFade.setCurrentAndTargetValue(bypassOn->load() > 0.5f ? 1.0f : 0.0f);
 
     for (auto [sv, p, scale] : { std::tuple { &sPrior, priorPct, 0.01f }, { &sMix, mixPct, 0.01f }, { &sBright, brightDb, 1.0f },
-                                 { &sAir, airDb, 1.0f }, { &sEvenOdd, evenOdd, 1.0f }, { &sFormant, formantSt, 1.0f } }) {
+                                 { &sAir, airDb, 1.0f }, { &sEvenOdd, evenOdd, 1.0f }, { &sFormant, formantSt, 1.0f },
+                                 { &sSub, subPct, 0.01f }, { &sBreath, breathPct, 0.01f } }) {
         sv->reset(sampleRate, 0.03);
         sv->setCurrentAndTargetValue(p->load() * scale);
     }
@@ -178,6 +181,8 @@ void LarynxProcessor::process(juce::AudioBuffer<float>& buffer, bool forceBypass
     sAir.setTargetValue(airDb->load());
     sEvenOdd.setTargetValue(evenOdd->load());
     sFormant.setTargetValue(formantSt->load());
+    sSub.setTargetValue(subPct->load() * 0.01f);
+    sBreath.setTargetValue(breathPct->load() * 0.01f);
 
     larynx::Controls c;
     const int mode = runMode.load();
@@ -224,7 +229,10 @@ void LarynxProcessor::process(juce::AudioBuffer<float>& buffer, bool forceBypass
         const bool fading = bypassFade.isSmoothing();
         const float b = bypassFade.getNextValue();
         c = { sPrior.getNextValue() * netRamp.getNextValue(), sMix.getNextValue(), sBright.getNextValue(),
-              sAir.getNextValue(), sEvenOdd.getNextValue(), sFormant.getNextValue() };
+              sAir.getNextValue(), sEvenOdd.getNextValue(), sFormant.getNextValue(), sSub.getNextValue(),
+              sBreath.getNextValue() };
+        engine.synth.setSub(c.sub);
+        studioEngine.synth.setSub(c.sub);
         const float xin = x[i] * inGain.getNextValue();
         float wet = engine.process(xin, shape);
         if (mode == Studio) wet = studioEngine.process(studioIn.process(xin), shapeStudio);

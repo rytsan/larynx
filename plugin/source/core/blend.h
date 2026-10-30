@@ -17,10 +17,15 @@ struct Controls {
     float air = 0.0f;     // dB, shelf at 8 kHz on harmonics and noise bands
     float evenodd = 0.0f; // -1..1 → ±kEvenOddDb on even harmonics, ∓ on odd ones (H1 untouched)
     float formant = 0.0f; // semitones, envelope reindexing (F0 untouched)
+    float sub = 0.0f;     // 0..1, M5: handled by Synth::setSub (not an envelope operator)
+    float breath = 0.0f;  // 0..1, M5: up to +kBreathDb on the noise bands of voiced frames, more on open vowels
 };
 
 constexpr float kEvenOddDb = 6.0f;
 constexpr float kAirHz = 8000.0f;
+constexpr float kBreathDb = 12.0f;
+
+inline char vowelOf(const HarmFrame& f, float* f1 = nullptr, float* f2 = nullptr);
 
 // Shelf weight 0..1: smoothstep over one octave centred on 8 kHz.
 inline float airWeight(float hz) {
@@ -68,6 +73,14 @@ inline void blend(const HarmFrame& in, HarmFrame& t, const Controls& c, double f
         for (int b = 0; b < kNumNoiseBands; ++b)
             if (t.noise[b] > kFloorDb) t.noise[b] += c.air * airWeight(noiseBandHz(b, fs));
 
+    if (c.breath > 0.0f && (in.flags & kVoiced)) {
+        // Open-vowel detector: F1 300 Hz (closed) → 800 Hz (open) maps to 0.5 → 1 of the breath gain.
+        float f1 = 0.0f;
+        const float open = vowelOf(in, &f1) ? std::clamp((f1 - 300.0f) / 500.0f, 0.0f, 1.0f) : 0.5f;
+        for (auto& v : t.noise)
+            if (v > kFloorDb) v += c.breath * kBreathDb * (0.5f + 0.5f * open);
+    }
+
     if (c.mix < 1.0f) {
         for (int i = 0; i < nv; ++i) t.h[i] = in.h[i] + c.mix * (t.h[i] - in.h[i]);
         for (int b = 0; b < kNumNoiseBands; ++b) t.noise[b] = in.noise[b] + c.mix * (t.noise[b] - in.noise[b]);
@@ -80,7 +93,7 @@ inline void blend(const HarmFrame& in, HarmFrame& t, const Controls& c, double f
 // within 250-2500 Hz (parabolic interpolation over neighbouring harmonics), lower one is F1; nearest
 // of a/e/i/o/u in log-frequency. Returns 0 when unvoiced or fewer than two maxima. ponytail: harmonic
 // sampling is coarse for high voices (f0 > ~400 Hz leaves few points), fine for a display.
-inline char vowelOf(const HarmFrame& f, float* f1 = nullptr, float* f2 = nullptr) {
+inline char vowelOf(const HarmFrame& f, float* f1, float* f2) {
     if (!(f.flags & kVoiced) || f.f0 <= 0.0f) return 0;
     float pk[2] = { 0.0f, 0.0f }, lv[2] = { kFloorDb, kFloorDb };
     for (int i = 1; i + 1 < f.nValid; ++i) {

@@ -168,3 +168,34 @@ TEST_CASE("net input: gain invariant, taper, normalization", "[features]") {
     REQUIRE(b[48] <= 0.0f);
     REQUIRE(b[49] <= 0.0f);
 }
+
+TEST_CASE("synth sub: f0/2 and f0/4 appear, phase-continuous; 0 = identity", "[synth]") {
+    const double fs = 48000.0, f0 = 220.0;
+    std::vector<float> db(10);
+    for (size_t k = 0; k < db.size(); ++k) db[k] = -20.0f - 3.0f * (float) k;
+    const auto x = harmonicTone(fs, 2.0, f0, db);
+    Engine e;
+    e.prepare(fs);
+    e.synth.setSub(1.0f);
+    std::vector<float> y;
+    for (float v : x) y.push_back(e.process(v));
+    // Goertzel power at f0/2, f0/4 and f0 over the last second.
+    auto power = [&](const std::vector<float>& s, double f) {
+        double re = 0.0, im = 0.0;
+        for (size_t n = s.size() / 2; n < s.size(); ++n) {
+            re += s[n] * std::cos(kTwoPi * f * (double) n / fs);
+            im += s[n] * std::sin(kTwoPi * f * (double) n / fs);
+        }
+        return 10.0 * std::log10(re * re + im * im + 1e-30);
+    };
+    const double h1 = power(y, f0), half = power(y, f0 / 2), quarter = power(y, f0 / 4);
+    CHECK(half > h1 - 12.0);       // sub at the H1..H4 mean (−4.5 dB re H1 here)
+    CHECK(quarter > half - 9.0);   // f0/4 at half amplitude (−6 dB)
+    CHECK(power(x, f0 / 2) < h1 - 60.0);
+    // Phase continuity: no clicks → no broadband jump between consecutive samples.
+    float worstStep = 0.0f;
+    for (size_t n = y.size() / 2; n + 1 < y.size(); ++n) worstStep = std::max(worstStep, std::abs(y[n + 1] - y[n]));
+    float inStep = 0.0f;
+    for (size_t n = x.size() / 2; n + 1 < x.size(); ++n) inStep = std::max(inStep, std::abs(x[n + 1] - x[n]));
+    CHECK(worstStep < 1.5f * inStep);
+}

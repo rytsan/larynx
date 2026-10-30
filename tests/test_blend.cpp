@@ -109,3 +109,19 @@ TEST_CASE("vowel reader: nearest of a/e/i/o/u", "[blend]") {
         CHECK(larynx::vowelOf(f) == expect[v]);
     }
 }
+
+TEST_CASE("blend: breath raises the noise bands of voiced frames only", "[blend]") {
+    auto in = frame();
+    HarmFrame t;
+    auto c = zero();
+    c.breath = 1.0f;
+    larynx::blend(in, t, c, 48000.0);
+    for (int b = 0; b < larynx::kNumNoiseBands; ++b) {
+        REQUIRE(t.noise[b] >= in.noise[b] + 0.5f * larynx::kBreathDb - 1e-4f);
+        REQUIRE(t.noise[b] <= in.noise[b] + larynx::kBreathDb + 1e-4f);
+    }
+    REQUIRE(std::memcmp(in.h, t.h, sizeof in.h) == 0);
+    in.flags = 0;
+    larynx::blend(in, t, c, 48000.0);
+    REQUIRE(std::memcmp(in.noise, t.noise, sizeof in.noise) == 0);
+}

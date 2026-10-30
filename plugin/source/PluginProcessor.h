@@ -89,11 +89,13 @@ private:
     std::atomic<float>* airDb = nullptr;
     std::atomic<float>* evenOdd = nullptr;
     std::atomic<float>* formantSt = nullptr;
+    std::atomic<float>* subPct = nullptr;
+    std::atomic<float>* breathPct = nullptr;
 
     larynx::DelayLine delay;
     larynx::Engine engine; // analyzer → skeleton → blend (M4) → synth
     // M4 controls, smoothed per sample and read once per hop (§8: automation without zipper).
-    juce::SmoothedValue<float> sPrior, sMix, sBright, sAir, sEvenOdd, sFormant;
+    juce::SmoothedValue<float> sPrior, sMix, sBright, sAir, sEvenOdd, sFormant, sSub, sBreath;
     double fs = 0.0;
 
     // M3 (§10/§11). Live: network on the current frame. Studio: the network sees frame t and predicts
