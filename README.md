@@ -21,6 +21,16 @@ O plugin reporta a latência final (1024 amostras @48 kHz ≈ 21.3 ms). O caminh
 (máscara de ganho sobre a STFT original + aditivo para harmônicos ausentes) com todos os ganhos = 1: sai a entrada atrasada,
 erro ≤ −130 dBFS. Live/Studio usam o mesmo caminho até o P6. O bypass continua cópia bit-perfect atrasada pela latência.
 
+## Instalação rápida (Linux / WSL)
+
+```bash
+./install.sh            # deps (apt), venv, build + testes, golden set, gate pycore, plugin em ~/.vst3 e ~/.clap
+./install.sh --data     # + baixa corpora (~30 GB) e gera shards
+./install.sh --train    # + treina Live e Studio e exporta plugin/source/neural/model_{live,studio}.json
+```
+
+Opções: `--no-apt`, `--hours N` (teto por corpus nos shards), `--steps N`, `--jobs N`. Tudo é idempotente.
+
 ## Build
 
 Requer CMake ≥ 3.24, compilador C++20 e git. JUCE 8, clap-juce-extensions e Catch2 são baixados pelo CMake
