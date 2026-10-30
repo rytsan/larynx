@@ -9,8 +9,10 @@ H1-40 and noise as deltas over the input, H41-80 absolute; band weights H1-8 ×2
 H41-60 ×0.8, H61-80 ×0.5, noise ×0.5; harmonics masked by nValid, bw_hz, unvoiced frames and floor.
 Validation: LSD H20-H80 per speaker against the baseline (ml/eval/baseline.py); the checkpoint with
 the lowest worst-speaker LSD is kept in data/runs/<name>/best.pt.
-ponytail: no F1/F2 auxiliary loss yet (needs differentiable formant picking); examples are built in
-the main process — move to DataLoader workers if the GPU starves.
+Auxiliary loss (×0.1): F1/F2 of the predicted envelope vs. the target's, in semitones. Peaks are a
+soft-argmax over the harmonics inside 250-900 Hz (F1) and 850-2500 Hz (F2), the same differentiable
+picker on both sides (not Praat: Praat is not differentiable and would be a second extractor).
+ponytail: examples are built in the main process — move to DataLoader workers if the GPU starves.
 """
 import argparse
 import csv
@@ -31,6 +33,8 @@ from baseline import FLOOR, baseline, lsd_terms, valid_mask  # noqa: E402
 from model import TCN  # noqa: E402
 
 NH = pycore.NET_HARMONICS  # 40
+FORMANT_BANDS = ((250.0, 900.0), (850.0, 2500.0))
+FORMANT_W, FORMANT_TAU = 0.1, 3.0  # weight in the loss; softmax temperature in dB
 BAND_W = np.concatenate([np.full(8, 2.0), np.full(32, 1.0), np.full(20, 0.8), np.full(20, 0.5), np.full(8, 0.5)])
 
 
@@ -67,20 +71,47 @@ def example(clip, s, length, rng, train):
     voiced = (t["flags"] & pycore.VOICED).astype(bool) & (t["f0"] > 0)
     hv = valid_mask(h_t, t["f0"], voiced, t["n_valid"], clip["bw"])
     w = np.concatenate([hv, np.ones((len(y), 8), bool)], axis=1) * BAND_W
+    aux = np.stack([i["h"][:, :NH], h_t[:, :NH], np.where(voiced, t["f0"], 0)[:, None].repeat(NH, 1)], 1)  # (T, 3, 40)
     return x, y.astype(np.float32), w.astype(np.float32), {"h_in": i["h"], "h_t": h_t, "rms": rms, "mask": hv,
-                                                            "n_valid": i["n_valid"]}
+                                                            "n_valid": i["n_valid"], "aux": aux.astype(np.float32)}
 
 
 def batch(clips, n, length, rng):
-    xs, ys, ws = [], [], []
+    xs, ys, ws, auxs = [], [], [], []
     while len(xs) < n:
         c = clips[rng.integers(len(clips))]
         T = len(c["t"]["f0"])
         if T < length:
             continue
-        x, y, w, _ = example(c, rng.integers(T - length + 1), length, rng, True)
-        xs.append(x), ys.append(y), ws.append(w)
-    return [torch.from_numpy(np.stack(a)) for a in (xs, ys, ws)]
+        x, y, w, e = example(c, rng.integers(T - length + 1), length, rng, True)
+        xs.append(x), ys.append(y), ws.append(w), auxs.append(e["aux"])
+    return [torch.from_numpy(np.stack(a)) for a in (xs, ys, ws, auxs)]
+
+
+def formants(h, f0):
+    """Soft-argmax F1/F2 (Hz) of a harmonic envelope h (..., 40) dB at n·f0; also a validity mask
+    (≥ 2 harmonics inside each band)."""
+    hz = f0[..., None] * torch.arange(1, NH + 1, device=h.device)
+    fs, ok = [], []
+    for lo, hi in FORMANT_BANDS:
+        inside = (hz >= lo) & (hz <= hi)
+        a = torch.softmax(torch.where(inside, h / FORMANT_TAU, torch.full_like(h, -1e4)), -1)
+        fs.append((a * hz).sum(-1))
+        ok.append(inside.sum(-1) >= 2)
+    return torch.stack(fs, -1), torch.stack(ok, -1)
+
+
+def formant_loss(pred, aux, delay):
+    """MSE in semitones between the F1/F2 of h_in + predicted delta and of the target (H1-H40)."""
+    h_in, h_t, f0 = aux[:, :, 0], aux[:, :, 1], aux[:, :, 2, 0]
+    h_p = h_in + pred[..., :NH]
+    if delay:
+        h_p, h_t, f0 = h_p[:, delay:], h_t[:, :-delay], f0[:, :-delay]
+    fp, _ = formants(h_p, f0.clamp(min=1))
+    ft, ok = formants(h_t, f0.clamp(min=1))
+    ok = ok & (f0 > 0)[..., None]
+    d = 12 * torch.log2(fp.clamp(min=1) / ft.clamp(min=1))
+    return (d[ok] ** 2).mean() if ok.any() else pred.sum() * 0
 
 
 def loss_fn(pred, y, w, delay):
@@ -140,10 +171,10 @@ def main():
     rng = np.random.default_rng(0)
     best, t0, run = float("inf"), time.time(), 0.0
     for step in range(1, a.steps + 1):
-        x, y, w = (v.to(dev, non_blocking=True) for v in batch(clips["train"], a.batch, a.length, rng))
+        x, y, w, aux = (v.to(dev, non_blocking=True) for v in batch(clips["train"], a.batch, a.length, rng))
         with torch.autocast(dev, dtype=torch.float16, enabled=dev == "cuda"):
             pred = model(x)
-        loss = loss_fn(pred.float(), y, w, a.delay)
+        loss = loss_fn(pred.float(), y, w, a.delay) + FORMANT_W * formant_loss(pred.float(), aux, a.delay)
         opt.zero_grad(set_to_none=True)
         scaler.scale(loss).backward()
         scaler.step(opt)

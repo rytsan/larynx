@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Training corpora (§9.1) into $LARYNX_DATA (default: data/, gitignored). Resumable (curl -C -).
 # The archive is kept next to its extraction; a re-run skips corpora already extracted.
-#   ml/data/download_corpora.sh [vocalset] [vctk]      (no args = all scripted corpora)
-# Not scripted (manual, see ml/data/credits.md): LibriTTS-R, JVS-MuSiC, PTDB-TUG.
+#   ml/data/download_corpora.sh [vocalset] [vctk] [libritts_r] [ptdb]   (no args = all)
+# JVS-MuSiC is not scriptable (no stable public URL): extract it by hand into $DATA/jvs_music.
 set -euo pipefail
 DATA=${LARYNX_DATA:-data}
 mkdir -p "$DATA"
@@ -14,15 +14,23 @@ fetch() { # name url md5 archive
     curl -L --fail --retry 5 -C - -o "$file" "$url"
     echo "$md5  $file" | md5sum -c -
     rm -rf "$DATA/$name.tmp" && mkdir "$DATA/$name.tmp"
-    unzip -q "$file" -d "$DATA/$name.tmp" && mv "$DATA/$name.tmp" "$DATA/$name"
+    case $file in
+        *.zip) unzip -q "$file" -d "$DATA/$name.tmp" ;;
+        *.tar.gz) tar -xzf "$file" -C "$DATA/$name.tmp" ;;
+    esac
+    mv "$DATA/$name.tmp" "$DATA/$name"
 }
 
-for c in ${@:-vocalset vctk}; do
+for c in ${@:-vocalset vctk libritts_r ptdb}; do
     case $c in
         vocalset) fetch vocalset https://zenodo.org/api/records/1442513/files/VocalSet1-2.zip/content \
                         c5e5efab412637fc94972b93c343a2f0 VocalSet1-2.zip ;;
         vctk) fetch vctk https://datashare.ed.ac.uk/bitstreams/535f4286-e54c-4038-838c-a02285e32cb2/download \
                     8a6ba2946b36fcbef0212cad601f4bfa VCTK-Corpus-0.92.zip ;;
+        libritts_r) fetch libritts_r https://www.openslr.org/resources/141/train_clean_100.tar.gz \
+                          6df668d8f5f33e70876bfa33862ad02b libritts_r_train_clean_100.tar.gz ;;
+        ptdb) fetch ptdb https://www2.spsc.tugraz.at/databases/PTDB-TUG/SPEECH_DATA_ZIPPED.zip \
+                    e590798aa0befaf7b458d3c38cda4030 PTDB-TUG.zip ;;
         *) echo "unknown corpus $c"; exit 2 ;;
     esac
 done

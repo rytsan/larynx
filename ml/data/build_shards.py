@@ -2,12 +2,12 @@
 """Decompose training corpora into shards through ml/pycore (§9.2, §9.3). Replaces decompose.py +
 qc_spectral.py: one pass reads the clip, runs QC and the C++ analysis, writes one .npz.
 
-    .venv/bin/python ml/data/build_shards.py vocalset vctk [--data data] [--jobs 8] [--max-hours 10]
+    .venv/bin/python ml/data/build_shards.py vocalset vctk libritts_r ptdb jvs_music [--data data] [--jobs 8] [--max-hours 10]
 
 Per clip (resampled to 48 kHz, loudness-normalized to -20 LUFS):
-  QC   reject on clipping, HNR < 12 dB, jitter/shimmer out of range (Praat).
-       RT60 is not checked: the scripted corpora are dry studio recordings. No inharmonicity test:
-       peak-vs-n·f0 deviation measures gliding F0 in speech, not inharmonic partials.
+  QC   reject on clipping, HNR < 12 dB, inharmonicity, RT60 > 0.5 s, jitter/shimmer too high
+       (pathological) or too low ("dead" synthetic voice).
+       Corpora missing from data/ are skipped with a warning.
   out  data/shards/<corpus>/<speaker>/<clip>.npz with the target analysis (clean) and, when an audio
        mask was drawn, the input analysis of the corrupted audio (masks.py).
 Manifest data/shards/manifest.csv: one row per clip, kept or rejected, with split (by speaker,
@@ -44,10 +44,16 @@ CORPORA = {
     "vocalset": ("**/FULL/*/*/*/*.wav", lambda p: p.parts[-4]),
     # wav48_silence_trimmed/<speaker>/<speaker>_<n>_mic1.flac, 48 kHz (mic2 is a second take of the same audio)
     "vctk": ("**/wav48_silence_trimmed/*/*_mic1.flac", lambda p: p.parts[-2]),
+    # LibriTTS_R/train-clean-100/<speaker>/<chapter>/<id>.wav, 24 kHz (bw_hz masks above 12 kHz)
+    "libritts_r": ("**/train-clean-100/*/*/*.wav", lambda p: p.parts[-3]),
+    # SPEECH DATA/<FEMALE|MALE>/MIC/<speaker>/mic_<speaker>_<sentence>.wav, 48 kHz (LAR = laryngograph, unused)
+    "ptdb": ("**/MIC/*/mic_*.wav", lambda p: p.parts[-2]),
+    # jvs_music_ver1/<jvsNNN>/song_<common|unique>/wav/raw.wav, 24 kHz (hand-extracted)
+    "jvs_music": ("**/jvs[0-9][0-9][0-9]/song_*/**/*.wav", lambda p: next(x for x in p.parts if x.startswith("jvs") and x[3:].isdigit())),
 }
 
 FIELDS = ["path", "corpus", "speaker", "split", "kept", "reason", "sr", "seconds", "bw_hz", "hnr_db",
-          "jitter", "shimmer", "audio_mask", "frames", "sha256", "core_hash"]
+          "inharm", "rt60", "jitter", "shimmer", "audio_mask", "frames", "sha256", "core_hash"]
 
 
 def core_hash():
@@ -82,6 +88,35 @@ def hnr_db(fr):
     return float(np.median(10 * np.log10(hp / npow + 1e-20)))
 
 
+def inharmonicity(fr):
+    """Median relative deviation of the measured partials from a harmonic series fitted per frame
+    (least-squares f0' through the origin on harmonics within 30 dB of the loudest, H1-H20). Fitting f0'
+    removes detector error; F0 glides inside the window still smear partials (speech up to ~0.085)."""
+    v = (fr["flags"] & pycore.VOICED).astype(bool) & (fr["f0"] > 0)
+    if v.sum() < 20:
+        return 0.0
+    h, hz = fr["h"][v, :20], fr["hz"][v, :20]
+    n = np.arange(1, 21, dtype=np.float64)
+    w = (h > h.max(axis=1, keepdims=True) - 30) & (hz > 0)
+    f0 = (w * hz * n).sum(1) / np.maximum((w * n * n).sum(1), 1e-9)
+    dev = np.abs(hz - n * f0[:, None]) / np.maximum(f0[:, None], 1e-9)
+    return float(np.median(dev[w])) if w.any() else 0.0
+
+
+def rt60(x, fs):
+    """Blind RT60 from the fastest energy fall: 10 ms envelope (30 ms smoothing), drop over the next
+    100 ms at every frame; reverb bounds how fast sound can die, so RT60 ≈ 60 dB · 0.1 s / the 99th
+    percentile drop. ponytail: crude (no Schroeder integration; a noisy floor caps the drop and reads
+    as reverb) — separates a dry studio from a room, not 0.3 s from 0.4 s."""
+    hop, w = fs // 100, 10
+    p = np.add.reduceat(x.astype(np.float64) ** 2, np.arange(0, len(x) - hop, hop)) / hop
+    e = 10 * np.log10(np.convolve(p, np.ones(3) / 3, mode="same") + 1e-12)
+    if len(e) <= w:
+        return 0.0
+    drop = e[:-w] - np.lib.stride_tricks.sliding_window_view(e[1:], w).min(axis=1)
+    return float(60 * 0.1 / max(np.percentile(drop, 99), 1e-3))
+
+
 def praat_qc(x, fs):
     snd = parselmouth.Sound(x.astype(np.float64), fs)
     pp = parselmouth.praat.call(snd, "To PointProcess (periodic, cc)", 60, 1200)
@@ -90,13 +125,19 @@ def praat_qc(x, fs):
     return float(np.nan_to_num(jit, nan=1.0)), float(np.nan_to_num(shim, nan=1.0))
 
 
-def reject_reason(peak, hnr, jit, shim):
+def reject_reason(peak, hnr, inharm, reverb, jit, shim):
     if peak >= 0.999:
         return "clipping"
     if hnr < 12:
         return "hnr"
-    if jit > 0.03 or shim > 0.2:  # pathological / tracking failure; "too clean" only matters for ACE-Step
+    if inharm > 0.1:  # speech glides reach ~0.085 on the golden set
+        return "inharmonic"
+    if reverb > 0.5:
+        return "rt60"
+    if jit > 0.03 or shim > 0.2:  # pathological voice or tracking failure
         return "jitter_shimmer"
+    if jit < 0.001 and shim < 0.01:  # too stable to be a human voice (synthetic, ACE-Step)
+        return "too_clean"
     return ""
 
 
@@ -127,10 +168,11 @@ def process(job):
     row["bw_hz"] = round(bandwidth(x, FS, sr))
 
     target = pycore.analyze(x, FS)
-    hnr = hnr_db(target)
+    hnr, inharm, reverb = hnr_db(target), inharmonicity(target), rt60(x, FS)
     jit, shim = praat_qc(x, FS)
-    row |= {"hnr_db": round(hnr, 2), "jitter": round(jit, 4), "shimmer": round(shim, 4)}
-    if reason := reject_reason(peak, hnr, jit, shim):
+    row |= {"hnr_db": round(hnr, 2), "inharm": round(inharm, 4), "rt60": round(reverb, 3),
+            "jitter": round(jit, 4), "shimmer": round(shim, 4)}
+    if reason := reject_reason(peak, hnr, inharm, reverb, jit, shim):
         return row | {"reason": reason}
 
     rng = np.random.default_rng(seed)
@@ -168,7 +210,8 @@ def main():
         root = a.data / corpus
         files = sorted(root.glob(pattern))
         if not files:
-            sys.exit(f"{corpus}: no files match {root}/{pattern} (run ml/data/download_corpora.sh)")
+            print(f"warning: {corpus}: no files match {root}/{pattern} — skipped (ml/data/download_corpora.sh)")
+            continue
         rng = np.random.default_rng(zlib.crc32(corpus.encode()))
         rng.shuffle(files)
         budget = a.max_hours * 3600 if a.max_hours else float("inf")
