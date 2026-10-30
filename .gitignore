@@ -6,3 +6,4 @@ golden/8_vozes/**/*.wav
 __pycache__/
 /data/
 /data.log
+/abx/
