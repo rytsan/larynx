@@ -2,3 +2,5 @@ build/
 *.bak
 golden/8_vozes/**/*.wav
 *.part
+.venv/
+__pycache__/

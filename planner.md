@@ -305,7 +305,11 @@ Objetivo: voz entra → decomposta → ressintetizada 1:1, transparente. Todo o 
 - [ ] Escuta com máscara ativa (único teste real do R1 agora): Brightness ±6 e Even/Odd ±1 nos mesmos 20 clipes, checklist anotado sem metálico/flutter/pré-eco
 - [x] LSD < 0.5 dB (harmônicos H1–H40) no caminho identidade — 0.00–0.01 dB no golden (`larynx_render`)
 - [x] Roundtrip aditivo→skeleton dentro de ±0.2 dB (`tests/test_engine.cpp`)
-- [ ] Calibrar aqui o limiar de deriva de vogal (NFR5): medir F1/F2 antes/depois na ressíntese perfeita → esse desvio é o piso do sistema
+- [x] Calibrar aqui o limiar de deriva de vogal (NFR5): medir F1/F2 antes/depois na ressíntese perfeita → esse desvio é o piso do sistema — `ml/eval/metrics.py` (Praat Burg, 10 ms, frames com pitch), 24 clipes do golden, 13 368 frames:
+  - identidade: 0.00% (mediana e p95) — o caminho é numericamente transparente, então o piso real é o do medidor
+  - piso do medidor (ruído branco somado): −90 dBFS → mediana 0.01%, p95 0.18%; −60 dBFS → mediana 0.2–0.3%, **p95 10–18%** (Praat troca de pico) → p95 não serve de métrica, só mediana
+  - referência com máscara: Even/Odd ±1 dB → F1 2.3% / F2 0.7%; Brightness ±3 dB/oct → F1 8–11% / F2 2.7–3.0%; ±6 dB/oct → F1 16–26% / F2 6–9% (medianas)
+  - **Limiar proposto para o P4: mediana F1 e F2 < 3%** (≈ 10× o piso do medidor, abaixo do JND de formante de ~3–5%). Pendente de decisão: Brightness muda o tilt e o LPC lê isso como F1 deslocado (8–11% em ±3) — ou Brightness sai do gate de deriva, ou o gate passa a ser escuta
 - [x] RTF(synth) < 0.1 — engine inteiro 0.03–0.04 em identidade, ≤ 0.08 com aditivo pesado
 
 Se não passar: não avançar. Iterar aqui (é o risco R1 do §16).

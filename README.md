@@ -12,7 +12,7 @@ Projeto pessoal, não comercial. O plano completo (requisitos, arquitetura, pass
 |---|---|---|
 | 1 | Casca do VST: build, parâmetros, bypass bit-perfect, UI estática | código pronto, testes passando; falta validar em DAW |
 | 2 | Analyzer (F0 / voicing) | código + testes sintéticos; falta validar flags e F0 em voz real |
-| 3 | Síntese identidade | identidade/LSD/roundtrip/RTF verdes; faltam ABX, escuta com máscara e piso de deriva de vogal |
+| 3 | Síntese identidade | identidade/LSD/roundtrip/RTF verdes; faltam ABX e escuta com máscara |
 | 4 | Controles harmônicos manuais | — |
 | 5 | Dados e treino | golden set congelado |
 | 6–9 | Neural Live, Studio, camada criativa, fechamento | — |
@@ -91,6 +91,13 @@ harmônicas (± 0.2 dB), energia das bandas de ruído, máscara (−6 dB no H3) 
 
 `out.wav` sai alinhado com a entrada (latência removida), pronto para ABX. `--bright` (dB/oct) e `--evenodd` (dB) são
 operadores provisórios para o gate de escuta do P3; os definitivos entram no M4 (P4).
+
+Deriva de vogal (NFR5) usa Praat via parselmouth, num venv local:
+
+```bash
+python3 -m venv .venv && .venv/bin/pip install praat-parselmouth numpy
+.venv/bin/python ml/eval/metrics.py in.wav out.wav [in2.wav out2.wav ...]   # mediana/p95 de |ΔF1|, |ΔF2| em %
+```
 
 ## Golden set
 
