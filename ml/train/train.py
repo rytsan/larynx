@@ -104,9 +104,9 @@ def formants(h, f0):
 def formant_loss(pred, aux, delay):
     """MSE in semitones between the F1/F2 of h_in + predicted delta and of the target (H1-H40)."""
     h_in, h_t, f0 = aux[:, :, 0], aux[:, :, 1], aux[:, :, 2, 0]
+    if delay:  # output t describes frame t-D: add it to that frame's input
+        pred, h_in, h_t, f0 = pred[:, delay:], h_in[:, :-delay], h_t[:, :-delay], f0[:, :-delay]
     h_p = h_in + pred[..., :NH]
-    if delay:
-        h_p, h_t, f0 = h_p[:, delay:], h_t[:, :-delay], f0[:, :-delay]
     fp, _ = formants(h_p, f0.clamp(min=1))
     ft, ok = formants(h_t, f0.clamp(min=1))
     ok = ok & (f0 > 0)[..., None]
@@ -129,14 +129,14 @@ def evaluate(model, clips, delay, dev):
         T = len(c["t"]["f0"])
         x, _, _, e = example(c, 0, T, np.random.default_rng(ci), False)
         out = model(torch.from_numpy(x)[None].to(dev)).float()[0].cpu().numpy()
-        pred = np.concatenate([e["h_in"][:, :NH] + out[:, :NH], e["rms"][:, None] + out[:, NH:80]], axis=1)
         h_in = e["h_in"].copy()
         h_in[:, NH:] = FLOOR  # the baseline sees what the network sees
         base = baseline(h_in, e["n_valid"])
-        if delay:  # output t is frame t-D
-            pred, h_t, mask, base = pred[delay:], e["h_t"][:-delay], e["mask"][:-delay], base[:-delay]
-        else:
-            h_t, mask = e["h_t"], e["mask"]
+        h_t, mask, rms = e["h_t"], e["mask"], e["rms"]
+        if delay:  # output t describes frame t-D
+            out = out[delay:]
+            h_in, h_t, mask, rms, base = h_in[:-delay], h_t[:-delay], mask[:-delay], rms[:-delay], base[:-delay]
+        pred = np.concatenate([h_in[:, :NH] + out[:, :NH], rms[:, None] + out[:, NH:80]], axis=1)
         a = acc.setdefault(c["speaker"], np.zeros(4))
         a += [*lsd_terms(pred, h_t, mask), *lsd_terms(base, h_t, mask)]
     model.train()
