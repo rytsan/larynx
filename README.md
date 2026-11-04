@@ -98,6 +98,8 @@ harmônicas (± 0.2 dB), energia das bandas de ruído, máscara (−6 dB no H3) 
 ./build/tools/bench_plugin/larynx_analyze golden/8_vozes/alto_ru/cantado.wav > frames.csv   # RTF no stderr
 ./build/tools/bench_plugin/larynx_render  golden/8_vozes/alto_ru/cantado.wav out.wav        # identidade: erro, LSD, RTF
 ./build/tools/bench_plugin/larynx_render  in.wav out.wav --bright 6 --evenodd -1            # máscara ativa (escuta do P3)
+./build/tools/bench_plugin/larynx_render_plugin in.wav out.wav --mode 1 --prior 100         # pelo plugin real (rede, presets, qualquer parâmetro)
+.venv/bin/python ml/eval/metrics.py in.wav out.wav                                        # deriva F1/F2 (NFR5) + jitter/shimmer (NFR6)
 ```
 
 `out.wav` sai alinhado com a entrada (latência removida), pronto para ABX. Opções nas unidades dos knobs, mesmo
