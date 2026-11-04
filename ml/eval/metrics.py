@@ -7,6 +7,8 @@ Drift per frame = |F_out - F_ref| / F_ref. Reports median and p95 per formant.
     python ml/eval/metrics.py ref.wav out.wav [ref2.wav out2.wav ...]
 
 Pairs are pooled; the last line is the total over all of them.
+Also prints the life check (NFR6): relative change of Praat jitter (local) and shimmer (local) per
+pair, and the worst pair; gate < 10%.
 """
 import sys
 
@@ -32,6 +34,15 @@ def formant_drift(ref_path, out_path):
     return np.abs(b[:, ok] - a[:, ok]) / a[:, ok]
 
 
+def life(path):
+    """Praat jitter (local) and shimmer (local), standard 75-600 Hz settings."""
+    snd = parselmouth.Sound(path)
+    pp = parselmouth.praat.call(snd, "To PointProcess (periodic, cc)", 75, 600)
+    jit = parselmouth.praat.call(pp, "Get jitter (local)", 0, 0, 0.0001, 0.02, 1.3)
+    shim = parselmouth.praat.call([snd, pp], "Get shimmer (local)", 0, 0, 0.0001, 0.02, 1.3, 1.6)
+    return np.array([jit, shim])
+
+
 def report(name, d):
     if d.shape[1] == 0:
         print(f"{name}: no voiced frames")
@@ -45,10 +56,16 @@ if __name__ == "__main__":
     args = sys.argv[1:]
     if not args or len(args) % 2:
         sys.exit(__doc__)
-    all_d = []
+    all_d, life_d = [], []
     for ref_path, out_path in zip(args[::2], args[1::2]):
         d = formant_drift(ref_path, out_path)
         report(out_path, d)
         all_d.append(d)
+        a, b = life(ref_path), life(out_path)
+        life_d.append(np.abs(b - a) / a)
+        print(f"  jitter {100 * a[0]:.2f}% -> {100 * b[0]:.2f}%  shimmer {100 * a[1]:.2f}% -> {100 * b[1]:.2f}%")
     if len(all_d) > 1:
         report("TOTAL", np.concatenate(all_d, axis=1))
+    w = np.max(life_d, axis=0) * 100
+    print(f"LIFE: jitter change median {100 * np.median([l[0] for l in life_d]):.1f}% worst {w[0]:.1f}%, "
+          f"shimmer change median {100 * np.median([l[1] for l in life_d]):.1f}% worst {w[1]:.1f}% (NFR6 < 10%)")
