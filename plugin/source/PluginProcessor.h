@@ -9,7 +9,7 @@
 
 namespace ParamID {
 inline constexpr auto mode = "mode", prior = "prior", mix = "mix", bright = "bright",
-    air = "air", evenodd = "evenodd", formant = "formant", sub = "sub", breath = "breath",
+    air = "air", evenodd = "evenodd", formant = "formant", sub = "sub", dbl = "double", breath = "breath",
     in = "in", out = "out", bypass = "bypass", morph = "morph", morphVoice = "morph_voice";
 }
 
@@ -109,6 +109,7 @@ private:
     std::atomic<float>* evenOdd = nullptr;
     std::atomic<float>* formantSt = nullptr;
     std::atomic<float>* subPct = nullptr;
+    std::atomic<float>* doublePct = nullptr;
     std::atomic<float>* breathPct = nullptr;
     std::atomic<float>* morphPct = nullptr;
     std::atomic<float>* morphVoiceIdx = nullptr;
@@ -117,7 +118,7 @@ private:
     larynx::DelayLine delay;
     larynx::Engine engine; // analyzer → skeleton → blend (M4) → synth
     // M4 controls, smoothed per sample and read once per hop (§8: automation without zipper).
-    juce::SmoothedValue<float> sPrior, sMix, sBright, sAir, sEvenOdd, sFormant, sSub, sBreath;
+    juce::SmoothedValue<float> sPrior, sMix, sBright, sAir, sEvenOdd, sFormant, sSub, sDouble, sBreath;
     double fs = 0.0;
     int program = 0;
     std::array<std::atomic<float>, kEditBars> editDb {};

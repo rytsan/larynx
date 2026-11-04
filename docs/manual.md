@@ -28,6 +28,7 @@ processado pela nova latência e volta com fade-in de 10 ms (sem estalo).
 
 **CRIAR**
 - **Sub** (0–100%): sub-oitavas f0/2 e f0/4 com a envolvente de H1–H4.
+- **Double** (0–100%): cópia de H1–H16 desafinada +9 cents, que bate devagar contra a voz (segundo take). A voz original não muda de afinação.
 - **Breath** (0–100%): até +12 dB nas bandas de ruído em trechos vozeados, mais em vogais abertas.
 - **Morph** (0–100%) + voz: puxa o envelope para o perfil de um dos 12 cantores de referência, por vogal e altura.
 

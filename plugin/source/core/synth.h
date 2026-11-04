@@ -22,6 +22,14 @@ public:
     // phase-locked to the harmonic bank. 0 = off. Read once per render().
     void setSub(float gain) { subGain_ = gain; }
 
+    // "Duplo virtual" (§12, light phase detune): a second copy of H1..kDoubleHarmonics at +kDoubleCents,
+    // gain × the target amplitudes, on its own phase — it beats slowly against the voice like a second
+    // take. 0 = off. Read once per render().
+    // ponytail: fixed detune and no timing offset; add a slow detune LFO if it sounds static.
+    static constexpr int kDoubleHarmonics = 16;
+    static constexpr double kDoubleCents = 9.0;
+    void setDouble(float gain) { dblGain_ = gain; }
+
     // One output sample. Called once per input sample, before that sample's render().
     float next() {
         const float y = out_[(size_t) readPos_] + addDelay_.process(add_[(size_t) readPos_]);
@@ -39,7 +47,9 @@ private:
     std::array<float, kNumHarmonics> ampPrev_ {}, ampCur_ {};
     float f0Prev_ = 0.0f, f0Cur_ = 0.0f;
     float subGain_ = 0.0f, subPrev_ = 0.0f, subCur_ = 0.0f;
-    double phase_ = 0.0;
+    double phase_ = 0.0, phaseDbl_ = 0.0;
+    float dblGain_ = 0.0f;
+    std::array<float, kDoubleHarmonics> dblPrev_ {}, dblCur_ {};
     DelayLine addDelay_; // aligns additive (frame-centre) output with the OLA output
 };
 

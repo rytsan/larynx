@@ -44,7 +44,10 @@ void Synth::reset() {
     ampPrev_.fill(0.0f);
     ampCur_.fill(0.0f);
     f0Prev_ = f0Cur_ = 0.0f;
-    phase_ = 0.0;
+    subPrev_ = subCur_ = 0.0f;
+    dblPrev_.fill(0.0f);
+    dblCur_.fill(0.0f);
+    phase_ = phaseDbl_ = 0.0;
 }
 
 void Synth::render(Skeleton& sk, const HarmFrame& in, const HarmFrame& target) {
@@ -116,6 +119,13 @@ void Synth::render(Skeleton& sk, const HarmFrame& in, const HarmFrame& target) {
         for (int i = 0; i < std::min(4, (int) target.nValid); ++i) env += ampOf(target.h[i]);
         subCur_ = subGain_ * env / 4.0f;
     }
+    dblPrev_ = dblCur_;
+    bool dbl = false;
+    for (int i = 0; i < kDoubleHarmonics; ++i) {
+        dblCur_[(size_t) i] = dblGain_ > 0.0f && target.f0 > 0.0f && i < target.nValid ? dblGain_ * ampOf(target.h[i]) : 0.0f;
+        dbl |= dblPrev_[(size_t) i] > 0.0f || dblCur_[(size_t) i] > 0.0f;
+    }
+    const double dblRatio = std::exp2(kDoubleCents / 1200.0);
     constexpr double twoPi = 2.0 * std::numbers::pi;
     for (int j = 0; j < hop_; ++j) {
         const float t = (float) (j + 1) / (float) hop_;
@@ -125,6 +135,12 @@ void Synth::render(Skeleton& sk, const HarmFrame& in, const HarmFrame& target) {
         if (subPrev_ > 0.0f || subCur_ > 0.0f) {
             const float a = subPrev_ + t * (subCur_ - subPrev_);
             s += a * (float) std::sin(0.5 * phase_) + 0.5f * a * (float) std::sin(0.25 * phase_);
+        }
+        if (dbl) {
+            phaseDbl_ += twoPi * dblRatio * (f0Prev_ + t * (f0Cur_ - f0Prev_)) / fs_;
+            if (phaseDbl_ >= twoPi) phaseDbl_ -= twoPi;
+            for (int i = 0; i < kDoubleHarmonics; ++i)
+                s += (dblPrev_[(size_t) i] + t * (dblCur_[(size_t) i] - dblPrev_[(size_t) i])) * (float) std::sin((i + 1) * phaseDbl_);
         }
         for (int a = 0; a < nActive; ++a) {
             const int i = active[a];

@@ -20,6 +20,7 @@ LarynxEditor::LarynxEditor(LarynxProcessor& p) : AudioProcessorEditor(p), proc(p
     evenodd = &addKnob(ParamID::evenodd, "EVEN/ODD");
     formant = &addKnob(ParamID::formant, "FORMANT");
     sub = &addKnob(ParamID::sub, "SUB");
+    dbl = &addKnob(ParamID::dbl, "DOUBLE");
     breath = &addKnob(ParamID::breath, "BREATH");
     inTrim = &addKnob(ParamID::in, "IN");
     outTrim = &addKnob(ParamID::out, "OUT");
@@ -182,7 +183,7 @@ void LarynxEditor::resized() {
     graph.setBounds(graphArea);
     layout(restore, { &prior->slider, &mix->slider });
     layout(timbre, { &bright->slider, &air->slider, &evenodd->slider, &formant->slider });
-    layout(create, { &sub->slider, &breath->slider, &morph->slider });
+    layout(create, { &sub->slider, &dbl->slider, &breath->slider, &morph->slider });
     morphVoice.setBounds(morph->label.getBounds().expanded(4, 0)); // voice picker replaces the MORPH label
     morph->label.setVisible(false);
 

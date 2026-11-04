@@ -1,6 +1,6 @@
 // Headless DSP-mode render: in.wav → out.wav, latency removed so out lines up with in (for ABX).
 //   larynx_render in.wav out.wav [--bright dB/oct] [--air dB] [--evenodd -1..1] [--formant st] [--mix 0..1]
-//                [--sub 0..1] [--breath 0..1]
+//                [--sub 0..1] [--double 0..1] [--breath 0..1]
 // Same M4 blend as the plugin (core/blend.h), parameters in plugin units, Prior irrelevant (no network).
 // Without options it is the P3 identity path: prints max error vs. input and LSD H1–H40.
 #include <algorithm>
@@ -28,11 +28,12 @@ std::vector<larynx::HarmFrame> analyzeAll(const std::vector<float>& x, double fs
 
 int main(int argc, char** argv) {
     if (argc < 3) {
-        std::fprintf(stderr, "usage: %s in.wav out.wav [--bright dB/oct] [--air dB] [--evenodd -1..1] [--formant st] [--mix 0..1] [--sub 0..1] [--breath 0..1]\n", argv[0]);
+        std::fprintf(stderr, "usage: %s in.wav out.wav [--bright dB/oct] [--air dB] [--evenodd -1..1] [--formant st] [--mix 0..1] [--sub 0..1] [--double 0..1] [--breath 0..1]\n", argv[0]);
         return 2;
     }
     larynx::Controls c;
     c.prior = 0.0f;
+    float dbl = 0.0f;
     for (int i = 3; i + 1 < argc; i += 2) {
         const float v = std::strtof(argv[i + 1], nullptr);
         if (!std::strcmp(argv[i], "--bright")) c.bright = v;
@@ -41,6 +42,7 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(argv[i], "--formant")) c.formant = v;
         else if (!std::strcmp(argv[i], "--mix")) c.mix = v;
         else if (!std::strcmp(argv[i], "--sub")) c.sub = v;
+        else if (!std::strcmp(argv[i], "--double")) dbl = v;
         else if (!std::strcmp(argv[i], "--breath")) c.breath = v;
         else { std::fprintf(stderr, "unknown option %s\n", argv[i]); return 2; }
     }
@@ -54,6 +56,7 @@ int main(int argc, char** argv) {
     larynx::Engine e;
     e.prepare(fs);
     e.synth.setSub(c.sub);
+    e.synth.setDouble(dbl);
     const size_t L = (size_t) e.latency();
     auto shape = [&](const larynx::HarmFrame& in, larynx::HarmFrame& t) { larynx::blend(in, t, c, fs); };
     std::vector<float> y;

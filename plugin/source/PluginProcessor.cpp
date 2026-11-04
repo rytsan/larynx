@@ -30,6 +30,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout() {
     l.add(range(ParamID::evenodd, "Even/Odd", -1.0f, 1.0f, ""));
     l.add(range(ParamID::formant, "Formant", -6.0f, 6.0f, "st"));
     l.add(pct(ParamID::sub, "Sub", 0.0f));
+    l.add(pct(ParamID::dbl, "Double", 0.0f));
     l.add(pct(ParamID::breath, "Breath", 0.0f));
     l.add(range(ParamID::in, "In Trim", -24.0f, 24.0f, "dB"));
     l.add(range(ParamID::out, "Out Trim", -24.0f, 24.0f, "dB"));
@@ -60,6 +61,7 @@ LarynxProcessor::LarynxProcessor()
     evenOdd = apvts.getRawParameterValue(ParamID::evenodd);
     formantSt = apvts.getRawParameterValue(ParamID::formant);
     subPct = apvts.getRawParameterValue(ParamID::sub);
+    doublePct = apvts.getRawParameterValue(ParamID::dbl);
     breathPct = apvts.getRawParameterValue(ParamID::breath);
     morphPct = apvts.getRawParameterValue(ParamID::morph);
     morphVoiceIdx = apvts.getRawParameterValue(ParamID::morphVoice);
@@ -96,8 +98,7 @@ const Preset presets[] = {
     { "Telefone → Estúdio", { { ParamID::mode, 1.0f }, { ParamID::prior, 100.0f }, { ParamID::air, 4.0f }, { ParamID::bright, 1.5f } } },
     { "Growl suave", { { ParamID::evenodd, -0.4f }, { ParamID::sub, 25.0f }, { ParamID::bright, -1.0f } } },
     { "Sopro etéreo", { { ParamID::prior, 50.0f }, { ParamID::breath, 70.0f }, { ParamID::air, 6.0f }, { ParamID::bright, 1.0f } } },
-    // ponytail: no phase detune yet ("detune leve de fase" of §12): sub + slight parity/formant shift only.
-    { "Duplo virtual", { { ParamID::sub, 15.0f }, { ParamID::evenodd, 0.15f }, { ParamID::formant, 0.5f } } },
+    { "Duplo virtual", { { ParamID::dbl, 60.0f }, { ParamID::sub, 10.0f }, { ParamID::formant, 0.3f } } },
 };
 
 } // namespace
@@ -242,7 +243,7 @@ void LarynxProcessor::prepareToPlay(double sampleRate, int maxBlockSize) {
 
     for (auto [sv, p, scale] : { std::tuple { &sPrior, priorPct, 0.01f }, { &sMix, mixPct, 0.01f }, { &sBright, brightDb, 1.0f },
                                  { &sAir, airDb, 1.0f }, { &sEvenOdd, evenOdd, 1.0f }, { &sFormant, formantSt, 1.0f },
-                                 { &sSub, subPct, 0.01f }, { &sBreath, breathPct, 0.01f }, { &sMorph, morphPct, 0.01f } }) {
+                                 { &sSub, subPct, 0.01f }, { &sDouble, doublePct, 0.01f }, { &sBreath, breathPct, 0.01f }, { &sMorph, morphPct, 0.01f } }) {
         sv->reset(sampleRate, 0.03);
         sv->setCurrentAndTargetValue(p->load() * scale);
     }
@@ -266,6 +267,7 @@ void LarynxProcessor::process(juce::AudioBuffer<float>& buffer, bool forceBypass
     sEvenOdd.setTargetValue(evenOdd->load());
     sFormant.setTargetValue(formantSt->load());
     sSub.setTargetValue(subPct->load() * 0.01f);
+    sDouble.setTargetValue(doublePct->load() * 0.01f);
     sBreath.setTargetValue(breathPct->load() * 0.01f);
     sMorph.setTargetValue(morphPct->load() * 0.01f);
     const int voice = juce::roundToInt(morphVoiceIdx->load());
@@ -344,6 +346,9 @@ void LarynxProcessor::process(juce::AudioBuffer<float>& buffer, bool forceBypass
         morphAmt = sMorph.getNextValue();
         engine.synth.setSub(c.sub);
         studioEngine.synth.setSub(c.sub);
+        const float dbl = sDouble.getNextValue();
+        engine.synth.setDouble(dbl);
+        studioEngine.synth.setDouble(dbl);
         const float xin = x[i] * inGain.getNextValue();
         if (!supported) { // NFR4 path at any rate: delayed input, no crash, no DSP (UI warns)
             switchFade();

@@ -254,6 +254,7 @@ Objetivo: o plugin existe, abre no DAW, dá bypass perfeito, tem a cara final da
 | Even/Odd | evenodd | −1…+1 | 0 |
 | Formant | formant | −6…+6 st | 0 |
 | Sub | sub | 0–100% | 0 |
+| Double | double | 0–100% | 0 |
 | Breath | breath | 0–100% | 0 |
 | In/Out trim | in,out | −24…+24 dB | 0 |
 | Bypass | bypass | bool | false |
@@ -445,7 +446,7 @@ Objetivo: o instrumento experimental.
 - Breath: ganho no canal de ruído (bandas ERB) com detector de vogal aberta (mais sopro nas abertas — realismo)
 - Morph (v2): Perfis extraídos: média geométrica (em dB) dos envelopes harmônicos por combinação vowel×pitch_bin (bins de 2 semitons) dos cantores do GTSinger fora do golden (ou gravações próprias, se surgirem). Espaço de morphing: PCA dos envelopes (primeiros 8 componentes), interpolação esférica (slerp) entre perfis no espaço PCA. Formato: .data binário com header descrevendo dimensões. Escalabilidade: novos perfis podem ser adicionados por qualquer usuário gravando o roteiro de 15 min (§9.1).
 - Editor de envelope no gráfico: arrastar barras H1–80; overlay do neural em trilha fantasma; duplo-clique = reset
-- Presets de fábrica: Studio Restore · Telefone→Estúdio · Growl suave · Sopro etéreo · Duplo virtual (sub+detrune leve de fase, sem pitch) · Pass Through
+- Presets de fábrica: Studio Restore · Telefone→Estúdio · Growl suave · Sopro etéreo · Duplo virtual (sub+detrune leve de fase, sem pitch — implementado: knob Double, cópia H1–H16 a +9 cents batendo contra a voz original, que não muda de afinação) · Pass Through
 - Modo Studio + editor = render "offline" com PDC
 
 **Gate**

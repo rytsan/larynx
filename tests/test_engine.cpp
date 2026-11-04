@@ -199,3 +199,32 @@ TEST_CASE("synth sub: f0/2 and f0/4 appear, phase-continuous; 0 = identity", "[s
     for (size_t n = x.size() / 2; n + 1 < x.size(); ++n) inStep = std::max(inStep, std::abs(x[n + 1] - x[n]));
     CHECK(worstStep < 1.5f * inStep);
 }
+
+TEST_CASE("synth double: detuned copy beats against the voice, no clicks", "[synth]") {
+    const double fs = 48000.0, f0 = 220.0;
+    std::vector<float> db(10);
+    for (size_t k = 0; k < db.size(); ++k) db[k] = -20.0f - 3.0f * (float) k;
+    const auto x = harmonicTone(fs, 3.0, f0, db);
+    Engine e;
+    e.prepare(fs);
+    e.synth.setDouble(1.0f);
+    std::vector<float> y;
+    for (float v : x) y.push_back(e.process(v));
+    // +9 cents beats at k·1.15 Hz on Hk: the 23 ms rms of the steady tone swings by several dB (the
+    // harmonics never cancel together, so not by much more), the input's stays flat.
+    auto swing = [](const std::vector<float>& s) {
+        double lo = 1e9, hi = -1e9;
+        for (size_t b = 48000; b + 1091 < s.size(); b += 1091) { // 5 periods of 220 Hz
+            double e = 0.0;
+            for (size_t n = b; n < b + 1091; ++n) e += (double) s[n] * s[n];
+            lo = std::min(lo, 10.0 * std::log10(e + 1e-30)), hi = std::max(hi, 10.0 * std::log10(e + 1e-30));
+        }
+        return hi - lo;
+    };
+    CHECK(swing(x) < 0.5);
+    CHECK(swing(y) > 3.0);
+    float worstStep = 0.0f, inStep = 0.0f;
+    for (size_t n = 48000; n + 1 < y.size(); ++n) worstStep = std::max(worstStep, std::abs(y[n + 1] - y[n]));
+    for (size_t n = 48000; n + 1 < x.size(); ++n) inStep = std::max(inStep, std::abs(x[n + 1] - x[n]));
+    CHECK(worstStep < 2.5f * inStep); // two summed copies can reach twice the input step
+}

@@ -29,7 +29,7 @@ private:
     juce::TooltipWindow tooltips { this };
 
     std::vector<std::unique_ptr<Knob>> knobs;
-    Knob *prior, *mix, *bright, *air, *evenodd, *formant, *sub, *breath, *morph, *inTrim, *outTrim;
+    Knob *prior, *mix, *bright, *air, *evenodd, *formant, *sub, *dbl, *breath, *morph, *inTrim, *outTrim;
     juce::ComboBox morphVoice;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> morphVoiceAttachment;
 

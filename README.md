@@ -171,6 +171,7 @@ IDs são contrato de automação — nunca renomear, só acrescentar.
 | Even/Odd | `evenodd` | −1…+1 | 0 |
 | Formant | `formant` | −6…+6 st | 0 |
 | Sub | `sub` | 0–100 % | 0 |
+| Double | `double` | 0–100 % | 0 |
 | Breath | `breath` | 0–100 % | 0 |
 | In / Out trim | `in`, `out` | −24…+24 dB | 0 |
 | Bypass | `bypass` | bool | off |
