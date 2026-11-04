@@ -11,7 +11,8 @@ Reconstrução harmônica vocal em tempo real. Entrada e saída mono, 44.1 ou 48
 | STUDIO | Mesma rede vendo 16 frames à frente (85 ms); mais precisa. O host compensa (PDC). | 106.7 ms |
 
 Sem pesos treinados embutidos, LIVE/STUDIO rodam como DSP. A troca de modo muda a latência: alguns hosts só
-reaplicam o PDC no próximo stop/play.
+reaplicam o PDC no próximo stop/play. Durante o playback a troca faz fade-out de 10 ms, silencia o sinal
+processado pela nova latência e volta com fade-in de 10 ms (sem estalo).
 
 ## Controles
 

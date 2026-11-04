@@ -32,6 +32,7 @@ public:
     bool loadModel(Mode m, const larynx::TcnWeights& w); // call before prepareToPlay (or the mode switch)
     bool hasModel(Mode m) const { return m != DSP && nets[m - 1].loaded(); }
     Mode runningMode() const { return (Mode) runMode.load(); } // effective mode (DSP when weights missing)
+    void flushModeSwitch() { handleUpdateNowIfNeeded(); } // offline renders/tests: run the pending reconfigure now
     // §2.7: only 44.1/48 kHz are processed; other rates pass the input through the latency delay.
     bool rateSupported() const { return supported.load(); }
 
@@ -91,7 +92,7 @@ public:
 
 private:
     void process(juce::AudioBuffer<float>&, bool forceBypass);
-    void configure(double sampleRate); // latency, delays, engines, network state for the current mode
+    void configure(double sampleRate, bool switching = false); // latency, delays, engines, network state for the current mode
     void parameterChanged(const juce::String& id, float) override;
     void handleAsyncUpdate() override;
     void valueTreePropertyChanged(juce::ValueTree&, const juce::Identifier& id) override {
@@ -130,6 +131,11 @@ private:
     std::atomic<int> runMode { DSP };
     std::atomic<bool> supported { true };
     juce::SmoothedValue<float> netRamp; // 0→1 over 300 ms after a mode switch (RF warm-up)
+    // Mode switch without pops: the audio thread fades the wet path out (10 ms), the message thread
+    // reconfigures, then the wet path stays muted for the new latency and fades back in (10 ms).
+    juce::SmoothedValue<float> switchGain { 1.0f };
+    std::atomic<bool> switchPending { false }, switchReady { false };
+    int switchMute = 0;
     std::array<float, larynx::kNetInputs> netX {};
     std::array<float, larynx::kNetOutputs> netY {};
     std::array<float, larynx::kNetOutputs> netDelta {};

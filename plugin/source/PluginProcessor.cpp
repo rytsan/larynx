@@ -185,20 +185,22 @@ bool LarynxProcessor::loadModel(Mode m, const larynx::TcnWeights& w) {
     return nets[m - 1].load(w);
 }
 
-void LarynxProcessor::parameterChanged(const juce::String&, float) { triggerAsyncUpdate(); }
+// The audio thread fades out and sets switchReady, which triggers the reconfigure below.
+// ponytail: the switch waits for processBlock calls; a host that stops calling it before the fade ends
+// applies the new mode at the next prepareToPlay instead.
+void LarynxProcessor::parameterChanged(const juce::String&, float) { switchPending = true; }
 
 void LarynxProcessor::handleAsyncUpdate() {
-    if (fs <= 0.0) return; // not prepared yet: prepareToPlay picks the mode up
-    // Mode changes latency (PDC): reconfigure with the audio callback held, then tell the host.
-    // ponytail: a short silent gap at the switch instead of the 30 ms prior ramp-down; hosts only
-    // re-apply PDC on the next stop/start anyway (§2.6).
+    if (fs <= 0.0 || !switchReady) return; // not prepared yet: prepareToPlay picks the mode up
+    // Mode changes latency (PDC): reconfigure with the audio callback held, then tell the host
+    // (hosts only re-apply PDC on the next stop/start, §2.6).
     suspendProcessing(true);
-    configure(fs);
+    configure(fs, true);
     suspendProcessing(false);
     updateHostDisplay(ChangeDetails().withLatencyChanged(true));
 }
 
-void LarynxProcessor::configure(double sampleRate) {
+void LarynxProcessor::configure(double sampleRate, bool switching) {
     fs = sampleRate;
     supported = sampleRate == 44100.0 || sampleRate == 48000.0;
     const int m = juce::roundToInt(apvts.getRawParameterValue(ParamID::mode)->load());
@@ -216,6 +218,10 @@ void LarynxProcessor::configure(double sampleRate) {
     netRamp.reset(sampleRate, 0.3);
     netRamp.setCurrentAndTargetValue(0.0f);
     netRamp.setTargetValue(1.0f);
+    switchPending = switchReady = false;
+    switchGain.reset(sampleRate, 0.01);
+    switchGain.setCurrentAndTargetValue(switching ? 0.0f : 1.0f);
+    switchMute = switching ? latency : 0;
 }
 
 bool LarynxProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const {
@@ -308,6 +314,20 @@ void LarynxProcessor::process(juce::AudioBuffer<float>& buffer, bool forceBypass
 
     auto* x = buffer.getWritePointer(0);
     float pIn = 0.0f, pOut = 0.0f, sIn = 0.0f, sOut = 0.0f;
+    auto switchFade = [&] {
+        if (switchPending && !switchReady) {
+            switchGain.setTargetValue(0.0f);
+            if (switchGain.getCurrentValue() <= 0.0f) {
+                switchReady = true;
+                triggerAsyncUpdate();
+            }
+        }
+        if (switchMute > 0) {
+            if (--switchMute == 0) switchGain.setTargetValue(1.0f);
+            return 0.0f;
+        }
+        return switchGain.getNextValue();
+    };
 
     // Processed path: in trim → engine (latency = window) → out trim. Bypass is the input through a
     // delay of the same length, so toggling never moves audio in time (NFR4). The engine keeps
@@ -326,6 +346,7 @@ void LarynxProcessor::process(juce::AudioBuffer<float>& buffer, bool forceBypass
         studioEngine.synth.setSub(c.sub);
         const float xin = x[i] * inGain.getNextValue();
         if (!supported) { // NFR4 path at any rate: delayed input, no crash, no DSP (UI warns)
+            switchFade();
             x[i] = d;
             outGain.getNextValue();
             pOut = std::max(pOut, std::abs(x[i]));
@@ -334,7 +355,7 @@ void LarynxProcessor::process(juce::AudioBuffer<float>& buffer, bool forceBypass
         }
         float wet = engine.process(xin, shape);
         if (mode == Studio) wet = studioEngine.process(studioIn.process(xin), shapeStudio);
-        wet *= outGain.getNextValue();
+        wet *= outGain.getNextValue() * switchFade();
         // Outside the fade, copy exactly: d + (wet - d) * 0 is not guaranteed bit-exact.
         x[i] = fading ? wet + (d - wet) * b : (b > 0.5f ? d : wet);
         pOut = std::max(pOut, std::abs(x[i]));

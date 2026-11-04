@@ -174,3 +174,72 @@ TEST_CASE("RTF of the full chain with the §2.3 TCN (96 ch, 7 layers) < 0.2", "[
         CHECK(rtf < 0.2);
     }
 }
+
+namespace {
+
+// Largest sample-to-sample step |y[n] - y[n-1]| in [from, to): a pop or a zipper is a step far
+// above what the tone itself produces.
+float maxStep(const std::vector<float>& y, size_t from, size_t to) {
+    float m = 0.0f;
+    for (size_t i = std::max<size_t>(from, 1); i < to && i < y.size(); ++i) m = std::max(m, std::abs(y[i] - y[i - 1]));
+    return m;
+}
+
+} // namespace
+
+TEST_CASE("Live <-> Studio switch during playback: no pop, new latency applied", "[neural]") {
+    juce::ScopedJuceInitialiser_GUI init;
+    LarynxProcessor p; // embedded trained models
+    REQUIRE(p.runningMode() == LarynxProcessor::DSP);
+    setParam(p, ParamID::mode, 1.0f);
+    setParam(p, ParamID::prior, 100.0f);
+    p.prepareToPlay(48000.0, 480);
+    if (p.runningMode() != LarynxProcessor::Live) SKIP("no embedded weights (build without LARYNX_MODELS)");
+    const auto x = tone(48000 * 4);
+    std::vector<float> y(x.size());
+    juce::MidiBuffer midi;
+    for (size_t pos = 0; pos < x.size(); pos += 480) {
+        if (pos == 48000) setParam(p, ParamID::mode, 2.0f);
+        if (pos == 48000 * 5 / 2) setParam(p, ParamID::mode, 1.0f);
+        juce::AudioBuffer<float> buf(1, 480);
+        std::copy_n(x.data() + pos, 480, buf.getWritePointer(0));
+        p.processBlock(buf, midi);
+        std::copy_n(buf.getReadPointer(0), 480, y.data() + pos);
+        p.flushModeSwitch(); // what the message thread would do
+        if (pos == 48000 * 2) REQUIRE(p.runningMode() == LarynxProcessor::Studio);
+    }
+    REQUIRE(p.runningMode() == LarynxProcessor::Live);
+    const float steady = maxStep(y, 24000, 48000);
+    REQUIRE(steady > 0.0f);
+    REQUIRE(maxStep(y, 48000, y.size()) < 1.5f * steady);
+}
+
+TEST_CASE("automation of prior, mix and brightness every block during neural: no zipper", "[neural]") {
+    juce::ScopedJuceInitialiser_GUI init;
+    const auto x = tone(48000 * 2);
+    auto render = [&](bool automate, float prior, float mix, float bright) {
+        LarynxProcessor p;
+        setParam(p, ParamID::mode, 1.0f);
+        setParam(p, ParamID::prior, prior), setParam(p, ParamID::mix, mix), setParam(p, ParamID::bright, bright);
+        p.prepareToPlay(48000.0, 480);
+        std::vector<float> y(x.size());
+        juce::MidiBuffer midi;
+        for (size_t pos = 0, b = 0; pos < x.size(); pos += 480, ++b) {
+            if (automate) { // worst case: extremes alternate every 10 ms block
+                const bool hi = b % 2;
+                setParam(p, ParamID::prior, hi ? 100.0f : 0.0f);
+                setParam(p, ParamID::mix, hi ? 100.0f : 0.0f);
+                setParam(p, ParamID::bright, hi ? 6.0f : -6.0f);
+            }
+            juce::AudioBuffer<float> buf(1, 480);
+            std::copy_n(x.data() + pos, 480, buf.getWritePointer(0));
+            p.processBlock(buf, midi);
+            std::copy_n(buf.getReadPointer(0), 480, y.data() + pos);
+        }
+        return y;
+    };
+    const size_t from = 24000;
+    const float ends = std::max(maxStep(render(false, 0.0f, 0.0f, -6.0f), from, x.size()),
+                                maxStep(render(false, 100.0f, 100.0f, 6.0f), from, x.size()));
+    REQUIRE(maxStep(render(true, 0.0f, 0.0f, -6.0f), from, x.size()) < 1.5f * ends);
+}

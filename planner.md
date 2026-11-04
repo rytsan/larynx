@@ -265,7 +265,7 @@ Objetivo: o plugin existe, abre no DAW, dá bypass perfeito, tem a cara final da
 
 **Gate**
 - [ ] Carrega no Reaper e Cubase (CLAP + VST3)
-- [ ] Bypass bit-perfect: diff entre out e in atrasado pela latência = 0 (teste automático)
+- [x] Bypass bit-perfect: diff entre out e in atrasado pela latência = 0 (teste automático) — `test_processor.cpp`
 - [x] Golden set congelado (SHA256SUMS + manifest commitados) antes de qualquer outra coisa — P2/P3 já dependem dele. Reconstruir/verificar: `python3 ml/data/fetch_golden.py`
 - [ ] Automação de mix gravada e reproduzida sem zipper
 - [ ] Sessão 1 h sem glitch; gráfico 60 fps estável
@@ -282,7 +282,7 @@ Objetivo: extrair F0/voicing/flags de qualidade em tempo real.
 - Bench headless: RTF do analyzer isolado
 
 **Gate**
-- [ ] F0 estável 30 s em vogal sustentada, sem octave-jump
+- [x] F0 estável 30 s em vogal sustentada, sem octave-jump — `test_analyzer.cpp` (vogal sintética, fundamental fraca)
 - [x] Erro < 10 cents RMS vs. ground truth sintético (`tests/test_analyzer.cpp`: pior caso < 0.02 cents, 65–1000 Hz, 44.1/48k; vibrato 6 Hz ±50 cents < 5 cents)
 - [ ] Sibilantes/transientes flagados ≥ 90% no golden set (anotar à mão 3 min)
 - [x] RTF(analyzer) < 0.05 (≈ 0.02 no golden set, Release, `larynx_analyze`)
@@ -423,7 +423,7 @@ Objetivo: o DLSS vocal funcional, em tempo real, dentro do plugin.
 
 **Gate**
 - [ ] RTF total < 0.2 sem GPU; latência total ≤ 25 ms
-- [ ] Sessão 1 h sem dropout; automação de prior durante neural ativa sem glitch
+- [ ] Sessão 1 h sem dropout; automação de prior durante neural ativa sem glitch — parte automática ✔: prior/mix/brightness alternando extremos a cada bloco de 10 ms no Live, maior degrau < 1.5× o dos extremos estáticos (`test_neural.cpp`); sessão de 1 h é teste seu
 - [ ] Comparação A/B no DAW: DSP mode vs. Live mode audível e positiva em vozes novas (os 12 cantores do GTSinger fora do golden)
 
 ## 11. PASSO 7 — Modo Studio (M3, variante 2)
@@ -435,7 +435,7 @@ Objetivo: o DLSS vocal funcional, em tempo real, dentro do plugin.
 **Gate**
 - [ ] Studio > Live no ABX (a latência compra melhoria audível no topo)
 - [ ] PDC correto: bounce no Reaper/Cubase alinhado (teste com click track)
-- [ ] Trocar Live↔Studio durante playback sem pop (alinhamento correto só após stop/start do transporte — limitação de host, documentada no manual)
+- [x] Trocar Live↔Studio durante playback sem pop (fade-out 10 ms → reconfigura → mudo pela latência → fade-in 10 ms; teste: maior degrau < 1.5× o do tom) (alinhamento correto só após stop/start do transporte — limitação de host, documentada no manual)
 
 ## 12. PASSO 8 — Camada criativa (M5)
 Objetivo: o instrumento experimental.
