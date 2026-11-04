@@ -408,7 +408,7 @@ Nota sobre a mask "truncar em H40": no plugin real a rede também só recebe H1.
 - [ ] ABX próprio no modo Studio: acerto ≤ 65% (original rico vs. restaurado)
 - [x] Export equivalente em C++ validado — `ml/train/check_export.py`: modelo treinado 5.7e-5 vs PyTorch float64 (o próprio float32 do PyTorch erra 1.7e-4)
 - [x] Para 100 frames aleatórios do dataset, a extração harmônica via pybind11 e via C++ headless (tools/bench_plugin) produzem h[80] com diff < 0.01 dB. Se não, consertar antes de treinar. — `ml/pycore/check_equivalence.py`: pior 0.0001 dB (arredondamento do CSV) no golden; rodar de novo sobre os shards reais
-- [ ] DatasetQC: taxa de descarte documentada; manifest com sha256
+- [x] DatasetQC: taxa de descarte documentada; manifest com sha256 — `build_shards.py` imprime por corpus (VocalSet 9.7%, LibriTTS-R 20.6%, PTDB 22.8%, VCTK 45.0% descartados; 29.9 h mantidas), 25 307 linhas no manifest, todas as mantidas com sha256; assert de speaker em um só split (0 vazamentos; GTSinger fora por construção)
 
 ## 10. PASSO 6 — Neural Core Live (M3)
 Objetivo: o DLSS vocal funcional, em tempo real, dentro do plugin.
@@ -423,7 +423,7 @@ Objetivo: o DLSS vocal funcional, em tempo real, dentro do plugin.
 **Estado (2026-10-30):** inferência própria em `core/neuralcore` (sem RTNeural: conv causal com histórico circular por camada, pesos reorganizados por tap), carregada de `plugin/source/neural/model_{live,studio}.json` embutidos via BinaryData; contrato de I/O conferido, arquivo inválido → DSP. `ml/train/check_export.py`: C++ vs PyTorch 4e-7 (gate §9.6). Live e Studio no processor: Studio roda um segundo motor com entrada atrasada D hops (latência 1024 + D·hop, bypass com o mesmo atraso; testado a 44.1/48k), troca de modo reconfigura com o callback suspenso e rampa Prior 0→1 em 300 ms. RTF (teste `[rtf]`, TCN 96 ch × 7, nesta máquina): Live 0.12, Studio 0.16. Falta: pesos treinados, medir em laptop, sessão de 1 h, A/B nos 12 cantores GTSinger.
 
 **Gate**
-- [ ] RTF total < 0.2 sem GPU; latência total ≤ 25 ms
+- [ ] RTF total < 0.2 sem GPU; latência total ≤ 25 ms — CPU desktop (Ryzen 5 3600X, inferência C++ sem GPU): Live 0.12, Studio 0.16 ✔; latência Live 1024 amostras = 21.3 ms @48k ✔. Falta medir em laptop 2018+ (NFR2)
 - [ ] Sessão 1 h sem dropout; automação de prior durante neural ativa sem glitch — parte automática ✔: prior/mix/brightness alternando extremos a cada bloco de 10 ms no Live, maior degrau < 1.5× o dos extremos estáticos (`test_neural.cpp`); sessão de 1 h é teste seu
 - [ ] Comparação A/B no DAW: DSP mode vs. Live mode audível e positiva em vozes novas (os 12 cantores do GTSinger fora do golden)
 
@@ -464,7 +464,18 @@ Objetivo: o instrumento experimental.
 - Build final assinado (ad-hoc no macOS), instalador zip
 
 **Gate**
-- [ ] Todos os NFRs verdes em tabela final
+- [ ] Todos os NFRs verdes em tabela final (estado 2026-11-04):
+
+  | NFR | Medido | Estado |
+  |---|---|---|
+  | NFR1 latência Live ≤ 25 ms | 21.3 ms @48k (1024 amostras) | ✔ |
+  | NFR2 RTF < 0.2 laptop sem GPU | 0.12 Live / 0.16 Studio em Ryzen 5 3600X (desktop) | ✔ desktop, laptop pendente |
+  | NFR3 zero flutter | identidade −130 dBFS, sub/double/automação/troca de modo sem degrau acima do tom (testes) | ✔ automático, escuta pendente |
+  | NFR4 bypass bit-perfect | `test_processor.cpp` (bypass, host bypass, toggle após crossfade) | ✔ |
+  | NFR5 vogal | mediana F1/F2 com rede: Live 0.62/0.28 %, Studio 0.73/0.36 % (limiar 3 %); knobs: Air ✔, Brightness/Even-Odd/Formant ✘ por desenho (decisão pendente) | ✔ rede, knobs pendente |
+  | NFR6 vida < 10 % | Studio pior clipe 8.6 %; Live 1/24 clipes 11.6 % (shimmer, fala soprosa) | ✔ Studio, ✘ Live (1 clipe) |
+  | NFR7 ABX | ferramenta pronta (`ml/eval/abx.py`), sem ouvintes ainda | pendente |
+  | NFR8 sessão 1 h | — | pendente (DAW) |
 - [ ] 1 pessoa externa usa o plugin sem ajuda
 - [ ] Tag v0.1 no repo
 
